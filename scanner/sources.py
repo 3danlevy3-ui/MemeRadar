@@ -1,0 +1,213 @@
+"""Data sources: Reddit via the Arctic Shift archive API (near real-time), prices via Yahoo."""
+import time
+
+import requests
+
+from . import config as C
+
+S = requests.Session()
+S.headers["User-Agent"] = C.USER_AGENT
+
+
+def _get(url, params=None, tries=3, timeout=30):
+    for i in range(tries):
+        try:
+            r = S.get(url, params=params, timeout=timeout)
+            if r.status_code == 200:
+                return r.json()
+            if r.status_code in (422, 429, 500, 502, 503):
+                time.sleep(3 * (i + 1))
+                continue
+            return None
+        except requests.RequestException:
+            time.sleep(3 * (i + 1))
+    return None
+
+
+def fetch_items(kind, sub, after, before):
+    """All comments/posts in [after, before) for one subreddit, oldest first."""
+    fields = "id,created_utc,author,body" if kind == "comments" else "id,created_utc,author,title,selftext"
+    out, cur = [], int(after)
+    for _ in range(C.MAX_PAGES_PER_SUB):
+        j = _get(f"{C.ARCTIC}/api/{kind}/search",
+                 {"subreddit": sub, "after": cur, "before": int(before), "limit": 100, "sort": "asc", "fields": fields})
+        data = (j or {}).get("data") or []
+        if not data:
+            break
+        out.extend(data)
+        last = max(int(d["created_utc"]) for d in data)
+        if len(data) < 100 or last <= cur:
+            break
+        cur = last  # items sharing this second may repeat; callers dedupe by id
+        time.sleep(0.4)
+    return out
+
+
+def posts_title_history(ticker, sub, days=14):
+    """Hourly counts of post titles mentioning the ticker (cheap baseline bootstrap)."""
+    now = int(time.time())
+    j = _get(f"{C.ARCTIC}/api/posts/search/aggregate",
+             {"aggregate": "created_utc", "frequency": "hour", "subreddit": sub, "title": ticker,
+              "after": now - days * 86400, "before": now})
+    return [(d["created_utc"], int(d["count"])) for d in (j or {}).get("data") or []]
+
+
+def price_context(ticker):
+    """Last price, 24h move and relative volume from Yahoo 60m bars (incl. pre/post market)."""
+    j = _get(f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
+             {"range": "10d", "interval": "60m", "includePrePost": "true"})
+    try:
+        res = j["chart"]["result"][0]
+        ts = res["timestamp"]
+        q = res["indicators"]["quote"][0]
+        rows = [(t, c, v or 0) for t, c, v in zip(ts, q["close"], q["volume"]) if c is not None]
+        t_last, p_last, _ = rows[-1]
+        ref = next((c for t, c, _ in reversed(rows) if t <= t_last - 86400), rows[0][1])
+        vol24 = sum(v for t, _, v in rows if t > t_last - 86400)
+        days = max(1, (rows[-1][0] - rows[0][0]) / 86400)
+        vol_avg = sum(v for _, _, v in rows) / days
+        meta = res.get("meta", {})
+        return {"price": p_last, "move_24h": p_last / ref - 1 if ref else 0.0,
+                "rel_volume": vol24 / vol_avg if vol_avg else None,
+                "name": meta.get("longName") or meta.get("shortName") or ticker, "ok": True}
+    except (TypeError, KeyError, IndexError, ZeroDivisionError):
+        return {"ok": False}
+
+
+def load_universe():
+    """US-listed tickers from Nasdaq Trader symbol files (NASDAQ + NYSE/other)."""
+    syms = set()
+    for url, col in [("https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt", 0),
+                     ("https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt", 0)]:
+        try:
+            r = S.get(url, timeout=30)
+            for line in r.text.splitlines()[1:]:
+                parts = line.split("|")
+                if len(parts) > 3 and parts[col].isalpha() and "File Creation" not in line:
+                    syms.add(parts[col].upper())
+        except requests.RequestException:
+            pass
+    return sorted(syms)
+
+
+# ---------------------------------------------------------------- Stocktwits
+ST = "https://api.stocktwits.com/api/2"
+BROWSER_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/126.0 Safari/537.36", "Accept": "application/json, text/plain, */*"}
+
+
+def _iso(ts):
+    import datetime as dt
+    return dt.datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
+
+
+def stocktwits_trending():
+    """[{ticker, rank, score, mcap_musd, float_m, summary}] or None if blocked."""
+    try:
+        r = S.get(f"{ST}/trending/symbols.json", headers=BROWSER_UA, timeout=20)
+        if r.status_code != 200:
+            return None
+        out = []
+        for i, s in enumerate(r.json().get("symbols", [])):
+            f = s.get("fundamentals") or {}
+            def num(k):
+                try:
+                    return float(str(f.get(k)).replace(",", ""))
+                except (TypeError, ValueError):
+                    return None
+            out.append({"ticker": s.get("symbol", "").upper(), "rank": s.get("rank") or i + 1,
+                        "score": s.get("trending_score"), "mcap_musd": num("MarketCap"),
+                        "float_m": num("FloatCurrent"), "shares_m": num("SharesOutstanding"),
+                        "summary": (s.get("trends") or {}).get("summary") or "",
+                        "cls": s.get("instrument_class")})
+        return out
+    except (requests.RequestException, ValueError):
+        return None
+
+
+def stocktwits_stream(ticker, now=None):
+    """Messages in the last hour (of the latest 30), bullish share, and implied hourly rate."""
+    now = now or time.time()
+    try:
+        r = S.get(f"{ST}/streams/symbol/{ticker}.json", headers=BROWSER_UA, timeout=20)
+        if r.status_code != 200:
+            return None
+        msgs = r.json().get("messages", [])
+    except (requests.RequestException, ValueError):
+        return None
+    if not msgs:
+        return {"n_1h": 0, "rate_h": 0.0, "bull": None, "texts": []}
+    ts = [_iso(m["created_at"]) for m in msgs]
+    n1 = sum(1 for t in ts if t >= now - 3600)
+    span_h = max((now - min(ts)) / 3600, 1 / 60)
+    sents = [((m.get("entities") or {}).get("sentiment") or {}).get("basic") for m in msgs]
+    tagged = [s for s in sents if s]
+    bull = sum(1 for s in tagged if s == "Bullish") / len(tagged) if tagged else None
+    return {"n_1h": n1, "rate_h": len(msgs) / span_h, "bull": bull, "saturated": n1 >= len(msgs) == 30,
+            "texts": [m.get("body", "")[:400] for m in msgs[:30]]}
+
+
+# ---------------------------------------------------------------- short interest (FINRA)
+def short_interest(ticker):
+    """Latest FINRA short interest: shares short, days to cover, change %, settlement date."""
+    import datetime as dt
+    start = (dt.date.today() - dt.timedelta(days=60)).isoformat()
+    try:
+        r = S.post("https://api.finra.org/data/group/otcMarket/name/consolidatedShortInterest",
+                   headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=20,
+                   json={"limit": 10, "compareFilters": [{"compareType": "equal", "fieldName": "symbolCode", "fieldValue": ticker}],
+                         "dateRangeFilters": [{"fieldName": "settlementDate", "startDate": start, "endDate": dt.date.today().isoformat()}]})
+        rows = r.json() if r.status_code == 200 else []
+        if not rows:
+            return None
+        x = max(rows, key=lambda q: q["settlementDate"])
+        return {"short_shares": x.get("currentShortPositionQuantity"), "dtc": x.get("daysToCoverQuantity"),
+                "chg_pct": x.get("changePercent"), "date": x.get("settlementDate")}
+    except (requests.RequestException, ValueError, KeyError):
+        return None
+
+
+# ---------------------------------------------------------------- Nasdaq (options + shares)
+NQ = "https://api.nasdaq.com/api/quote"
+
+
+def _nqnum(v):
+    try:
+        return float(str(v).replace(",", "").replace("$", ""))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def shares_outstanding(ticker):
+    try:
+        r = S.get(f"{NQ}/{ticker}/summary", params={"assetclass": "stocks"}, headers=BROWSER_UA, timeout=20)
+        d = r.json()["data"]["summaryData"]
+        mc, pc = _nqnum(d["MarketCap"]["value"]), _nqnum(d["PreviousClose"]["value"])
+        return mc / pc if pc else None
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        return None
+
+
+def options_activity(ticker, expiries=2):
+    """Call/put volume and call volume vs open interest over the nearest expiries (today's session)."""
+    try:
+        r = S.get(f"{NQ}/{ticker}/option-chain", headers=BROWSER_UA, timeout=25,
+                  params={"assetclass": "stocks", "limit": 400, "fromdate": "all", "excode": "oprac",
+                          "callput": "callput", "money": "all", "type": "all"})
+        rows = r.json()["data"]["table"]["rows"]
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        return None
+    groups, cv, pv, coi = 0, 0.0, 0.0, 0.0
+    for row in rows:
+        if row.get("expirygroup"):
+            groups += 1
+            if groups > expiries:
+                break
+            continue
+        cv += _nqnum(row.get("c_Volume"))
+        pv += _nqnum(row.get("p_Volume"))
+        coi += _nqnum(row.get("c_Openinterest"))
+    if cv + pv == 0:
+        return {"call_vol": 0, "put_vol": 0, "cp_ratio": None, "call_vol_oi": None}
+    return {"call_vol": int(cv), "put_vol": int(pv), "cp_ratio": cv / pv if pv else None,
+            "call_vol_oi": cv / coi if coi else None}
