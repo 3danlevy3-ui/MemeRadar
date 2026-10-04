@@ -20,10 +20,10 @@ permissions:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -43,6 +43,7 @@ jobs:
           BURST_MULT: ${{ vars.BURST_MULT }}
           EARLY_MAX_MOVE: ${{ vars.EARLY_MAX_MOVE }}
           SUBREDDITS: ${{ vars.SUBREDDITS }}
+          PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
         run: |
           if [ "${{ inputs.test_telegram }}" = "true" ]; then
             python -m scanner.main --test-telegram
@@ -54,7 +55,7 @@ jobs:
         run: |
           git config user.name "memeradar-bot"
           git config user.email "memeradar-bot@users.noreply.github.com"
-          git add state/ || true
+          git add state/ docs/ || true
           git diff --cached --quiet && exit 0
           git commit -m "state update [skip ci]"
           for i in 1 2 3; do git pull --rebase -X ours && git push && break; sleep 5; done
