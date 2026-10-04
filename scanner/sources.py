@@ -211,3 +211,71 @@ def options_activity(ticker, expiries=2):
         return {"call_vol": 0, "put_vol": 0, "cp_ratio": None, "call_vol_oi": None}
     return {"call_vol": int(cv), "put_vol": int(pv), "cp_ratio": cv / pv if pv else None,
             "call_vol_oi": cv / coi if coi else None}
+
+
+# ---------------------------------------------------------------- price bars (journal + charts)
+def price_bars(ticker, rng="1mo", interval="60m"):
+    """[(ts, open, high, low, close)] incl. pre/post market, oldest first. [] on failure."""
+    j = _get(f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
+             {"range": rng, "interval": interval, "includePrePost": "true"})
+    try:
+        res = j["chart"]["result"][0]
+        q = res["indicators"]["quote"][0]
+        return [(t, o, h, l, c) for t, o, h, l, c in zip(res["timestamp"], q["open"], q["high"], q["low"], q["close"])
+                if None not in (o, h, l, c)]
+    except (TypeError, KeyError, IndexError):
+        return []
+
+
+# ---------------------------------------------------------------- earnings calendar (Nasdaq)
+def earnings_on(date_iso):
+    """Set of tickers reporting earnings on a date (YYYY-MM-DD), or None on failure."""
+    try:
+        r = S.get(f"https://api.nasdaq.com/api/calendar/earnings", params={"date": date_iso},
+                  headers=BROWSER_UA, timeout=20)
+        rows = (r.json().get("data") or {}).get("rows") or []
+        return {row["symbol"].upper() for row in rows if row.get("symbol")}
+    except (requests.RequestException, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+# ---------------------------------------------------------------- Google Trends (unofficial, best effort)
+GT = "https://trends.google.com"
+
+
+def _gt_json(text):
+    return __import__("json").loads(text[text.index("\n") + 1:])
+
+
+def google_trends(ticker):
+    """Hourly US search interest for '<TICKER> stock' over 7 days.
+
+    Returns {"ratio": last-6h mean / earlier mean, "last": latest value, "series": [...]} or None.
+    Google often answers 429 to cloud servers; callers must treat None as 'unknown'.
+    """
+    import json
+    sess = requests.Session()
+    sess.headers.update(BROWSER_UA)
+    try:
+        sess.get(f"{GT}/?geo=US", timeout=15)  # sets the NID cookie
+        req = {"comparisonItem": [{"keyword": f"{ticker} stock", "geo": "US", "time": "now 7-d"}],
+               "category": 0, "property": ""}
+        r = sess.get(f"{GT}/trends/api/explore", params={"hl": "en-US", "tz": 0, "req": json.dumps(req)}, timeout=20)
+        if r.status_code != 200:
+            return None
+        w = next(x for x in _gt_json(r.text)["widgets"] if x.get("id") == "TIMESERIES")
+        r2 = sess.get(f"{GT}/trends/api/widgetdata/multiline",
+                      params={"hl": "en-US", "tz": 0, "req": json.dumps(w["request"]), "token": w["token"]}, timeout=20)
+        if r2.status_code != 200:
+            return None
+        tl = _gt_json(r2.text)["default"]["timelineData"]
+    except (requests.RequestException, ValueError, KeyError, StopIteration):
+        return None
+    vals = [(int(p["time"]), p["value"][0]) for p in tl if (p.get("hasData") or [True])[0]]
+    if len(vals) < 30:
+        return None
+    recent = [v for _, v in vals[-6:]]
+    earlier = [v for _, v in vals[:-24]]
+    base = sum(earlier) / len(earlier) if earlier else 0
+    now_avg = sum(recent) / len(recent)
+    return {"ratio": round(now_avg / max(base, 1), 1), "last": vals[-1][1], "series": vals[-72:]}

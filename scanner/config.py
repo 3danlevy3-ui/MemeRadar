@@ -13,7 +13,8 @@ ARCTIC = "https://arctic-shift.photon-reddit.com"
 USER_AGENT = _env("USER_AGENT", "MemeRadar/1.0 (personal research scanner)")
 LOOKBACK_MIN = _env("LOOKBACK_MIN", 60, int)          # window scanned on every run
 MAX_PAGES_PER_SUB = _env("MAX_PAGES_PER_SUB", 80, int)  # 100 items per page
-BACKFILL_HOURS = _env("BACKFILL_HOURS", 72, int)       # first run: build a baseline
+BACKFILL_HOURS = _env("BACKFILL_HOURS", 72, int)       # baseline history to build up
+BACKFILL_BUDGET_S = _env("BACKFILL_BUDGET_S", 360, int)  # max seconds per run spent on backfill
 
 # --- signal thresholds (calibrated in analysis/backtest.py) ----------------
 MIN_MENTIONS_1H = _env("MIN_MENTIONS_1H", 8, int)
@@ -77,3 +78,24 @@ USE_SHORT_INTEREST = _env("USE_SHORT_INTEREST", "1") == "1"   # FINRA, twice a m
 USE_OPTIONS = _env("USE_OPTIONS", "1") == "1"                 # Nasdaq option chain
 DTC_HIGH = _env("DTC_HIGH", 4.0, float)                       # days-to-cover that counts as squeeze fuel
 HEALTH_HOUR_UTC = _env("HEALTH_HOUR_UTC", 5, int)             # daily status message (08:00 Israel)
+
+# --- improvements v3 --------------------------------------------------------
+JOURNAL_PATH = _env("JOURNAL_PATH", "state/journal.json")
+DASHBOARD_PATH = _env("DASHBOARD_PATH", "docs/index.html")
+USE_TRENDS = _env("USE_TRENDS", "1") == "1"          # Google Trends, best effort
+USE_EARNINGS = _env("USE_EARNINGS", "1") == "1"      # Nasdaq earnings calendar
+USE_CHARTS = _env("USE_CHARTS", "1") == "1"          # PNG chart with every alert
+TRENDS_BOOST_RATIO = _env("TRENDS_BOOST_RATIO", 3.0, float)
+SPAM_DUP_RATIO = _env("SPAM_DUP_RATIO", 0.4, float)   # share of copy-pasted texts
+SPAM_TOP_AUTHOR = _env("SPAM_TOP_AUTHOR", 0.5, float)  # one author writing >= half the mentions
+FROM_ZERO_BASE = _env("FROM_ZERO_BASE", 0.1, float)   # hourly baseline below this = "from zero"
+# experiment rules shown with every alert and used for the paper-trading journal
+TP_PCT = _env("TP_PCT", 0.30, float)
+STOP_PCT = _env("STOP_PCT", 0.15, float)
+HOLD_DAYS = _env("HOLD_DAYS", 3, int)
+POSITION_PCT = _env("POSITION_PCT", 2.0, float)       # % of portfolio per idea
+TRADE_COST = _env("TRADE_COST", 0.005, float)
+WEEKLY_DOW = _env("WEEKLY_DOW", 5, int)               # 5 = Saturday (Python weekday)
+WEEKLY_HOUR_UTC = _env("WEEKLY_HOUR_UTC", 6, int)     # 09:00 Israel
+MAX_OUTCOME_FETCH = _env("MAX_OUTCOME_FETCH", 6, int)
+PAGES_URL = _env("PAGES_URL", "")

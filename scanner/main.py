@@ -5,7 +5,7 @@ import os
 import time
 
 from . import config as C
-from . import llm, notify, signals, sources
+from . import bot, charts, dashboard, journal, llm, notify, signals, sources
 from .tickers import extract
 from .xsource import XClient
 
@@ -60,6 +60,24 @@ def cached(state, kind, ticker, ttl_h, fn):
     return val
 
 
+def earnings_soon(state, now):
+    """Tickers with earnings yesterday/today/tomorrow (US calendar dates). Cached per day."""
+    day = time.strftime("%Y-%m-%d", time.gmtime(now))
+    e = state.get("earn") or {}
+    if e.get("day") == day:
+        return set(e.get("set", []))
+    out, ok = set(), False
+    for off in (-1, 0, 1):
+        r = sources.earnings_on(time.strftime("%Y-%m-%d", time.gmtime(now + off * 86400)))
+        if r is not None:
+            ok = True
+            out |= r
+    health(state, "earnings", ok)
+    if ok:
+        state["earn"] = {"day": day, "set": sorted(out)}
+    return out
+
+
 def maybe_daily_health(state, now, send):
     h = state.setdefault("health", {"day": "", "src": {}})
     today = time.strftime("%Y%m%d", time.gmtime(now))
@@ -73,20 +91,58 @@ def maybe_daily_health(state, now, send):
 def run(dry=False, verbose=False):
     now = int(time.time())
     state = load_json(C.STATE_PATH, None) or signals.new_state()
-    send = print if dry else notify.send
+    jr = load_json(C.JOURNAL_PATH, None) or journal.new_journal()
+
+    def send(text, buttons=None, photo=None, urgent=False):
+        """Send now, or hold while /quiet is on. Returns message_id when sent."""
+        if dry:
+            print(text, "[buttons]" if buttons else "", f"[photo {len(photo)}b]" if photo else "")
+            return None
+        if not urgent and state.get("quiet_until", 0) > time.time():
+            state.setdefault("held", []).append(text)
+            return None
+        mid = notify.send(text, buttons)
+        if photo:
+            notify.send_photo(photo)
+        return mid
+
+    def weekly(force=False):
+        due, week = journal.weekly_due(jr, now)
+        if not (due or force):
+            return
+        wk = [e for e in jr["entries"] if now - e["t"] < 7 * 86400]
+        groups = journal.breakdown(jr["entries"])
+        text = notify.fmt_weekly(journal.stats(wk), journal.stats(jr["entries"]), groups,
+                                 sorted(wk, key=lambda e: -(e.get("score") or 0)), C.PAGES_URL)
+        png = charts.weekly_chart(jr["entries"], groups) if C.USE_CHARTS else None
+        send(text, photo=png, urgent=force)
+        if not force:
+            jr["last_weekly"] = week
+
+    if not dry:
+        bot.poll(state, jr, weekly)
     uni = universe()
     if not uni:
         print("no ticker universe; abort")
         return
 
     # ---------------- Reddit
+    # Build the baseline gradually: each run backfills older hours for at most BACKFILL_BUDGET_S,
+    # newest first, so no single run can hit the GitHub time limit.
     if not state.get("backfilled"):
-        start, stop = now - C.BACKFILL_HOURS * 3600, now - C.LOOKBACK_MIN * 60
-        for a in range(start, stop, 3600):
-            signals.ingest(state, fetch_window(a, min(a + 3600, stop)), uni)
-            state["seen"] = {}
-        state["backfilled"] = True
-        print(f"backfill done: {len(state['hours'])} hours")
+        target = now - C.BACKFILL_HOURS * 3600
+        cursor = state.get("backfill_cursor") or (now - C.LOOKBACK_MIN * 60)
+        deadline = time.time() + C.BACKFILL_BUDGET_S
+        n = 0
+        while cursor > target and time.time() < deadline:
+            a = max(target, cursor - 3600)
+            signals.ingest(state, fetch_window(a, cursor), uni)
+            state["seen"] = {k: v for k, v in state["seen"].items() if v >= now - 3 * 3600}
+            cursor, n = a, n + 1
+        state["backfill_cursor"] = cursor
+        state["backfilled"] = cursor <= target
+        print(f"backfill: +{n} hours, {round((now - cursor) / 3600)}h of history"
+              f"{' (done)' if state['backfilled'] else ''}")
     items = signals.ingest(state, fetch_window(now - C.LOOKBACK_MIN * 60, now), uni)
     health(state, "reddit", bool(items))
     m60, a60, texts, total60 = signals.window_stats(items, now, C.LOOKBACK_MIN)
@@ -96,6 +152,11 @@ def run(dry=False, verbose=False):
     pool = {t: {"ticker": t} for t, c in reddit.items() if c["fired"]}
     for c in sorted(reddit.values(), key=lambda c: -c["score"])[:5]:
         pool.setdefault(c["ticker"], {"ticker": c["ticker"]})
+
+    for t in state.get("watch", []):
+        pool.setdefault(t, {"ticker": t})["watch_user"] = True
+    qual = signals.quality(items, now, C.LOOKBACK_MIN)
+    earn = earnings_soon(state, now) if C.USE_EARNINGS else set()
 
     # ---------------- Stocktwits trending
     trending = {}
@@ -178,12 +239,22 @@ def run(dry=False, verbose=False):
             c["options"] = sources.options_activity(t)
             health(state, "nasdaq", c["options"] is not None)
         signals.fuse(c)
+        if C.USE_TRENDS:
+            c["trends"] = cached(state, "trends", t, 3, sources.google_trends)
+            health(state, "google_trends", c["trends"] is not None)
+        signals.apply_flags(c, qual.get(t), t in earn, c.get("trends"))
         analysis = llm.analyse(t, texts.get(t, []) + c.pop("_st_texts", []))
         if analysis and analysis.get("pump_suspect") and (analysis.get("dd_quality") or 0) <= 2:
             c["score"] = max(0, c["score"] - 15)
         if verbose:
             print({k: v for k, v in c.items() if not k.startswith("_")})
-        send(notify.fmt_alert(c, analysis))
+        eid = journal.record(jr, c, now)
+        png = None
+        if C.USE_CHARTS:
+            bars = sources.price_bars(t, "5d")
+            png = charts.alert_chart(t, charts.hourly_mentions(state, t, now), bars,
+                                     (c.get("trends") or {}).get("series"), now)
+        jr["entries"][-1]["msg"] = send(notify.fmt_alert(c, analysis), bot.feedback_buttons(eid), png)
         prev = state["alerts"].get(t, {})
         state["alerts"][t] = {
             "time": now, "tier": c["tier"], "score": c["score"], "sources": c["sources"],
@@ -195,9 +266,24 @@ def run(dry=False, verbose=False):
         send(notify.fmt_exit(x))
     maybe_daily_health(state, now, send)
 
+    # ---------------- journal outcomes, weekly report, held messages, dashboard
+    journal.update_outcomes(jr, now, sources.price_bars)
+    weekly()
+    if state.get("held") and state.get("quiet_until", 0) <= time.time():
+        held = state.pop("held")
+        send(f"🔔 <b>בזמן ההשתקה ({len(held)} הודעות):</b>\n\n" + "\n\n———\n\n".join(held)[:3800])
+    journal.prune(jr, now)
+    try:
+        dashboard.build(jr, state, now)
+    except Exception as ex:  # the dashboard must never break the scan
+        print("dashboard error", ex)
+
     signals.prune(state, now)
+    for kind, entries in (state.get("cache") or {}).items():   # drop cache older than 8 days
+        state["cache"][kind] = {k: v for k, v in entries.items() if now - v[0] < 8 * 86400}
     state["last_run"] = now
     save_json(C.STATE_PATH, state)
+    save_json(C.JOURNAL_PATH, jr)
     print(f"scan ok: {total60} reddit items/{C.LOOKBACK_MIN}m, pool {len(pool)}, {sent} alerts, "
           f"X spent today ${state.get('x', {}).get('spent', 0):.3f}")
 

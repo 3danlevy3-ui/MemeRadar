@@ -193,3 +193,50 @@ def fuse(c):
     c["sources"] = src
     c["score"] = int(min(100, round(s)))
     return c
+
+
+# ---------------------------------------------------------------- quality flags
+def _norm(text):
+    import re
+    return re.sub(r"[^a-z0-9$ ]", "", text.lower())[:160].strip()
+
+
+def quality(items, now, minutes=60):
+    """Per ticker: share of copy-pasted texts and share of mentions from the single busiest author."""
+    lo = now - minutes * 60
+    per = defaultdict(list)
+    for it in items:
+        if it["t"] >= lo:
+            for t in it["tk"]:
+                per[t].append((it["a"], _norm(it["text"])))
+    out = {}
+    for t, rows in per.items():
+        n = len(rows)
+        if n < 4:
+            continue
+        texts = [x for _, x in rows if len(x) >= 12]
+        dup = 1 - len(set(texts)) / len(texts) if texts else 0.0
+        counts = defaultdict(int)
+        for a, _ in rows:
+            counts[a] += 1
+        out[t] = {"dup": round(dup, 2), "top_author": round(max(counts.values()) / n, 2)}
+    return out
+
+
+def apply_flags(c, q=None, earnings=None, trends=None):
+    """Adjust score with quality/context flags; returns c with c['flags'] (Hebrew labels)."""
+    flags, adj = [], 0
+    if c.get("reddit_fired") and c.get("baseline_h") is not None and c["baseline_h"] < C.FROM_ZERO_BASE:
+        flags.append("🆕 מאפס: כמעט לא דיברו עליה לפני")
+        adj += 8
+    if q and (q["dup"] >= C.SPAM_DUP_RATIO or q["top_author"] >= C.SPAM_TOP_AUTHOR):
+        flags.append(f"⚠️ חשד לספאם: {int(q['dup'] * 100)}% הודעות משוכפלות, כותב אחד = {int(q['top_author'] * 100)}%")
+        adj -= 15
+    if earnings:
+        flags.append("📅 דוחות כספיים סביב היום: הרעש צפוי")
+        adj -= 10
+    if trends and trends.get("ratio") is not None and trends["ratio"] >= C.TRENDS_BOOST_RATIO:
+        adj += 6
+    c["flags"] = flags
+    c["score"] = int(max(0, min(100, c.get("score", 0) + adj)))
+    return c
