@@ -105,6 +105,14 @@ def maybe_digest(state, now, send):
     state["digest_day"] = day
 
 
+
+def _where(ex):
+    """Short error text plus the code line where it happened, for /status."""
+    import traceback
+    tb = traceback.extract_tb(ex.__traceback__)
+    at = f" @ {tb[-1].filename.split('/')[-1]}:{tb[-1].lineno}" if tb else ""
+    return (repr(ex)[:160] + at)[:200]
+
 def run(dry=False, verbose=False):
     now = int(time.time())
     state = load_json(C.STATE_PATH, None) or signals.new_state()
@@ -136,8 +144,14 @@ def run(dry=False, verbose=False):
         if not force:
             jr["last_weekly"] = week
 
-    if not dry:
-        bot.poll(state, jr, weekly)
+    try:
+        if not dry:
+            bot.poll(state, jr, weekly)
+    except Exception as ex:  # keep scanning even if this part breaks
+        print("telegram error", repr(ex))
+        health(state, "errors", False)
+        state.setdefault("last_errors", []).append([now, "telegram", repr(ex)[:200]])
+        state["last_errors"] = state["last_errors"][-10:]
     uni = universe()
     if not uni:
         print("no ticker universe; abort")
@@ -178,33 +192,45 @@ def run(dry=False, verbose=False):
 
     # ---------------- Stocktwits trending
     trending = {}
-    if C.USE_STOCKTWITS:
-        tr = sources.stocktwits_trending()
-        health(state, "stocktwits", tr is not None)
-        prev_top = set(state.get("st_prev", []))
-        for s in tr or []:
-            t = s["ticker"]
-            if t in C.MEGA or (s["cls"] and s["cls"] != "Stock") or (s["mcap_musd"] and s["mcap_musd"] > C.MAX_MCAP_MUSD):
-                continue
-            s["new"] = s["rank"] <= C.ST_TOP_RANK and t not in prev_top
-            trending[t] = s
-            if s["new"]:
-                pool.setdefault(t, {"ticker": t})
-        if tr is not None:
-            state["st_prev"] = [s["ticker"] for s in tr if (s["rank"] or 99) <= C.ST_TOP_RANK]
+    try:
+        if C.USE_STOCKTWITS:
+            tr = sources.stocktwits_trending()
+            health(state, "stocktwits", tr is not None)
+            prev_top = set(state.get("st_prev", []))
+            for s in tr or []:
+                t = s["ticker"]
+                if t in C.MEGA or (s["cls"] and s["cls"] != "Stock") or (s["mcap_musd"] and s["mcap_musd"] > C.MAX_MCAP_MUSD):
+                    continue
+                s["new"] = s["rank"] <= C.ST_TOP_RANK and t not in prev_top
+                trending[t] = s
+                if s["new"]:
+                    pool.setdefault(t, {"ticker": t})
+            if tr is not None:
+                state["st_prev"] = [s["ticker"] for s in tr if (s["rank"] or 99) <= C.ST_TOP_RANK]
+    except Exception as ex:  # keep scanning even if this part breaks
+        print("stocktwits error", repr(ex))
+        health(state, "errors", False)
+        state.setdefault("last_errors", []).append([now, "stocktwits", repr(ex)[:200]])
+        state["last_errors"] = state["last_errors"][-10:]
 
     # ---------------- X: watched accounts (the Roaring-Kitty case) + watchlist rotation
     xc = XClient(state)
-    if xc.ok:
-        for acct in C.X_ACCOUNTS:
-            for p in xc.account_posts(acct.strip()):
-                tks = extract(p.get("text", ""), uni) or set()
-                send(notify.fmt_influencer(acct, p, tks))
-                for t in tks:
-                    pool.setdefault(t, {"ticker": t})["influencer"] = acct
-        w = xc.next_watch()
-        if w:
-            pool.setdefault(w, {"ticker": w})["watch"] = True
+    try:
+        if xc.ok:
+            for acct in C.X_ACCOUNTS:
+                for p in xc.account_posts(acct.strip()):
+                    tks = extract(p.get("text", ""), uni) or set()
+                    send(notify.fmt_influencer(acct, p, tks))
+                    for t in tks:
+                        pool.setdefault(t, {"ticker": t})["influencer"] = acct
+            w = xc.next_watch()
+            if w:
+                pool.setdefault(w, {"ticker": w})["watch"] = True
+    except Exception as ex:  # keep scanning even if this part breaks
+        print("x error", repr(ex))
+        health(state, "errors", False)
+        state.setdefault("last_errors", []).append([now, "x", repr(ex)[:200]])
+        state["last_errors"] = state["last_errors"][-10:]
 
     # ---------------- enrich every candidate with Stocktwits + X
     x_left = C.X_MAX_PER_RUN
@@ -237,6 +263,8 @@ def run(dry=False, verbose=False):
         except Exception as ex:  # one bad stock or source must never stop the whole scan
             print("enrich error", t, repr(ex))
             health(state, "errors", False)
+            state.setdefault("last_errors", []).append([now, "enrich " + str(t), _where(ex)])
+            state["last_errors"] = state["last_errors"][-10:]
     if xc.ok or C.X_BEARER_TOKEN:
         health(state, "x", xc.errors == 0)
 
@@ -310,18 +338,32 @@ def run(dry=False, verbose=False):
         except Exception as ex:  # one bad stock or source must never stop the whole scan
             print("alert error", t, repr(ex))
             health(state, "errors", False)
+            state.setdefault("last_errors", []).append([now, "alert " + str(t), _where(ex)])
+            state["last_errors"] = state["last_errors"][-10:]
 
-    for x in signals.check_exits(state, now, sources.price_context):
-        send(plain.fmt_exit(x))
-    maybe_daily_health(state, now, send)
-    maybe_digest(state, now, send)
+    try:
+        for x in signals.check_exits(state, now, sources.price_context):
+            send(plain.fmt_exit(x))
+        maybe_daily_health(state, now, send)
+        maybe_digest(state, now, send)
+    except Exception as ex:  # keep scanning even if this part breaks
+        print("exits/digest error", repr(ex))
+        health(state, "errors", False)
+        state.setdefault("last_errors", []).append([now, "exits/digest", repr(ex)[:200]])
+        state["last_errors"] = state["last_errors"][-10:]
 
     # ---------------- journal outcomes, weekly report, held messages, dashboard
-    journal.update_outcomes(jr, now, sources.price_bars)
-    weekly()
-    if state.get("held") and state.get("quiet_until", 0) <= time.time():
-        held = state.pop("held")
-        send(f"🔔 <b>בזמן ההשתקה ({len(held)} הודעות):</b>\n\n" + "\n\n———\n\n".join(held)[:3800])
+    try:
+        journal.update_outcomes(jr, now, sources.price_bars)
+        weekly()
+        if state.get("held") and state.get("quiet_until", 0) <= time.time():
+            held = state.pop("held")
+            send(f"🔔 <b>בזמן ההשתקה ({len(held)} הודעות):</b>\n\n" + "\n\n———\n\n".join(held)[:3800])
+    except Exception as ex:  # keep scanning even if this part breaks
+        print("journal/weekly error", repr(ex))
+        health(state, "errors", False)
+        state.setdefault("last_errors", []).append([now, "journal/weekly", repr(ex)[:200]])
+        state["last_errors"] = state["last_errors"][-10:]
     journal.prune(jr, now)
     try:
         dashboard.build(jr, state, now)
@@ -355,7 +397,10 @@ if __name__ == "__main__":
             try:   # tell the phone, at most once every 6 hours
                 st = load_json(C.STATE_PATH, {}) or {}
                 if time.time() - st.get("last_crash_note", 0) > 6 * 3600:
-                    notify.send("⚠️ הסורק נתקל בשגיאה בריצה האחרונה. אם זה חוזר, שלחו את הפרטים מ-GitHub Actions.")
+                    import sys as _s
+                    err = repr(_s.exc_info()[1])[:300]
+                    notify.send("⚠️ הסורק נתקל בשגיאה ולא סיים את הריצה.\nהעבירו את השורה הזו ל-Claude:\n<code>"
+                                + notify.e(err) + "</code>")
                     st["last_crash_note"] = time.time()
                     save_json(C.STATE_PATH, st)
             except Exception:
