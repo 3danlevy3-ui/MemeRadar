@@ -203,6 +203,9 @@ def fmt_status(state, journal_stats, pages_url=""):
     if x.get("day"):
         L.append(f"X: ${x.get('spent', 0):.2f} היום")
     L.append(f"יומן: {_fmt_stats(journal_stats)}")
+    errs = [x for x in state.get("last_errors", []) if now - x[0] < 86400]
+    if errs:
+        L.append(f"⚠️ תקלות ב-24 השעות האחרונות: {len(errs)}. האחרונה: <code>{e(errs[-1][1] + ': ' + errs[-1][2])}</code>")
     if pages_url:
         L.append(f"<a href='{e(pages_url)}'>לוח הבקרה</a>")
     return "\n".join(L)

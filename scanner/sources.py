@@ -141,7 +141,10 @@ def stocktwits_stream(ticker, now=None):
         return None
     if not msgs:
         return {"n_1h": 0, "rate_h": 0.0, "bull": None, "texts": []}
-    ts = [_iso(m["created_at"]) for m in msgs]
+    try:
+        ts = [_iso(m["created_at"]) for m in msgs]
+    except (KeyError, ValueError, TypeError):
+        return None
     n1 = sum(1 for t in ts if t >= now - 3600)
     span_h = max((now - min(ts)) / 3600, 1 / 60)
     sents = [((m.get("entities") or {}).get("sentiment") or {}).get("basic") for m in msgs]
