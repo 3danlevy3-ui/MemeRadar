@@ -5,7 +5,7 @@ import os
 import time
 
 from . import config as C
-from . import bot, charts, dashboard, journal, llm, notify, signals, sources
+from . import bot, charts, dashboard, journal, llm, notify, plain, signals, sources
 from .tickers import extract
 from .xsource import XClient
 
@@ -83,9 +83,26 @@ def maybe_daily_health(state, now, send):
     today = time.strftime("%Y%m%d", time.gmtime(now))
     if time.gmtime(now).tm_hour < C.HEALTH_HOUR_UTC or h.get("day") == today:
         return
-    if h.get("src"):
+    broken = [k for k, (ok, bad) in h.get("src", {}).items() if bad and not ok]
+    if broken:   # stay silent when everything works; problems also appear in the daily digest
         send(notify.fmt_health(h["src"], state.get("x", {}), sum(1 for a in state["alerts"].values() if not a.get("closed"))))
+    state["health_yesterday"] = h.get("src", {})
     h.update(day=today, src={})
+
+
+def maybe_digest(state, now, send):
+    """Once a day, before the US open: the stocks that warmed up but did not earn an instant alert."""
+    day = time.strftime("%Y%m%d", time.gmtime(now))
+    if time.gmtime(now).tm_hour < C.DIGEST_HOUR_UTC or state.get("digest_day") == day:
+        return
+    d = state.get("digest", {})
+    items = [dict(v, hot=now - v["last"] < 2 * 3600) for v in d.values() if now - v["last"] < 24 * 3600]
+    items.sort(key=lambda v: (-v["hot"], -v["score"]))
+    src = (state.get("health") or {}).get("src", {})
+    problems = [k for k, (ok, bad) in src.items() if bad and not ok]
+    send(plain.fmt_digest(items, problems, C.PAGES_URL))
+    state["digest"] = {}
+    state["digest_day"] = day
 
 
 def run(dry=False, verbose=False):
@@ -146,7 +163,8 @@ def run(dry=False, verbose=False):
     items = signals.ingest(state, fetch_window(now - C.LOOKBACK_MIN * 60, now), uni)
     health(state, "reddit", bool(items))
     m60, a60, texts, total60 = signals.window_stats(items, now, C.LOOKBACK_MIN)
-    reddit = {c["ticker"]: c for c in signals.evaluate(state, m60, a60, total60, now)}
+    m20, _, _, _ = signals.window_stats(items, now, 20)
+    reddit = {c["ticker"]: c for c in signals.evaluate(state, m60, a60, total60, now, m20)}
 
     # candidate pool: Reddit burst + near-misses
     pool = {t: {"ticker": t} for t, c in reddit.items() if c["fired"]}
@@ -195,15 +213,17 @@ def run(dry=False, verbose=False):
         c = pool[t]
         r = reddit.get(t)
         if r:
-            c.update({k: r[k] for k in ("mentions_1h", "authors_1h", "burst", "baseline_h")})
+            c.update({k: r[k] for k in ("mentions_1h", "pace_1h", "authors_1h", "burst", "baseline_h", "fast")})
             c["reddit_fired"] = r["fired"]
+            c["reddit_new"] = r["baseline_h"] < C.MIN_BASELINE or r.get("history_h", 0) < C.MIN_HISTORY_HOURS
         if C.USE_STOCKTWITS:
             st = sources.stocktwits_stream(t, now)
             ema = state.get("st_rate", {}).get(t)
-            fired, burst = signals.st_signal(st, ema, bool(trending.get(t, {}).get("new")))
+            fired, burst, st_new = signals.st_signal(st, ema, bool(trending.get(t, {}).get("new")),
+                                                     state.get("st_obs", {}).get(t, 0))
             signals.st_update(state, t, st, fired)
             if st:
-                c.update(st_fired=fired, st_burst=burst, st_1h=st["n_1h"], st_bull=st["bull"],
+                c.update(st_fired=fired, st_burst=burst, st_new=st_new, st_1h=st["n_1h"], st_bull=st["bull"],
                          st_rank=trending.get(t, {}).get("rank"), st_summary=trending.get(t, {}).get("summary"))
                 c["_st_texts"] = st["texts"]
         if xc.ok and (c.get("watch") or (x_left > 0 and (c.get("reddit_fired") or c.get("st_fired")))):
@@ -228,10 +248,13 @@ def run(dry=False, verbose=False):
         health(state, "yahoo", px.get("ok"))
         if px.get("ok"):
             c.update(price=round(px["price"], 4), move_24h=round(px["move_24h"] * 100, 1),
-                     rel_volume=round(px["rel_volume"], 1) if px.get("rel_volume") else None, name=px.get("name"))
+                     rel_volume=round(px["rel_volume"], 1) if px.get("rel_volume") else None, name=px.get("name"),
+                     market_live=px.get("live"))
+        sh = cached(state, "shares", t, 24 * 7, sources.shares_outstanding)
+        if sh and c.get("price"):
+            c["mcap_b"] = round(sh * c["price"] / 1e9, 1)
         if C.USE_SHORT_INTEREST:
             c["si"] = cached(state, "si", t, 12, sources.short_interest)
-            sh = cached(state, "shares", t, 24 * 7, sources.shares_outstanding)
             if c["si"] and sh:
                 c["si"]["pct_out"] = round(100 * c["si"]["short_shares"] / sh, 1)
             health(state, "finra", c["si"] is not None)
@@ -243,18 +266,36 @@ def run(dry=False, verbose=False):
             c["trends"] = cached(state, "trends", t, 3, sources.google_trends)
             health(state, "google_trends", c["trends"] is not None)
         signals.apply_flags(c, qual.get(t), t in earn, c.get("trends"))
-        analysis = llm.analyse(t, texts.get(t, []) + c.pop("_st_texts", []))
+        signals.pattern(c, state, jr["entries"], now)
+        all_texts = texts.get(t, []) + c.pop("_st_texts", [])
+        c["lex"] = signals.lexicon(all_texts)
+        analysis = llm.analyse(t, all_texts)
         if analysis and analysis.get("pump_suspect") and (analysis.get("dd_quality") or 0) <= 2:
             c["score"] = max(0, c["score"] - 15)
         if verbose:
             print({k: v for k, v in c.items() if not k.startswith("_")})
+        ch, why_ch = signals.channel(c, state, now)
+        c["channel"] = ch
         eid = journal.record(jr, c, now)
+        jr["entries"][-1]["channel"] = ch
+        if verbose:
+            print(t, "->", ch, why_ch)
+        if ch == "digest":
+            why, plus, minus = plain.reasons(c, analysis)
+            d = state.setdefault("digest", {})
+            prev_d = d.get(t, {})
+            d[t] = {"ticker": t, "name": c.get("name"), "score": max(c["score"], prev_d.get("score", 0)),
+                    "why": (why[0] if why else "") + (f" · {minus[0]}" if minus else ""),
+                    "first": prev_d.get("first", now), "last": now, "n": prev_d.get("n", 0) + 1}
+            continue
         png = None
         if C.USE_CHARTS:
             bars = sources.price_bars(t, "5d")
             png = charts.alert_chart(t, charts.hourly_mentions(state, t, now), bars,
                                      (c.get("trends") or {}).get("series"), now)
-        jr["entries"][-1]["msg"] = send(notify.fmt_alert(c, analysis), bot.feedback_buttons(eid), png)
+        technical = notify.fmt_alert(c, analysis).replace(f"<i>{notify.HIST}</i>", "").strip()
+        jr["entries"][-1]["msg"] = send(plain.fmt_alert(c, analysis, technical, extreme=(ch == "extreme")),
+                                        bot.feedback_buttons(eid), png, urgent=(ch == "extreme"))
         prev = state["alerts"].get(t, {})
         state["alerts"][t] = {
             "time": now, "tier": c["tier"], "score": c["score"], "sources": c["sources"],
@@ -263,8 +304,9 @@ def run(dry=False, verbose=False):
         sent += 1
 
     for x in signals.check_exits(state, now, sources.price_context):
-        send(notify.fmt_exit(x))
+        send(plain.fmt_exit(x))
     maybe_daily_health(state, now, send)
+    maybe_digest(state, now, send)
 
     # ---------------- journal outcomes, weekly report, held messages, dashboard
     journal.update_outcomes(jr, now, sources.price_bars)

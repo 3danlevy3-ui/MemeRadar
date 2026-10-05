@@ -17,7 +17,8 @@ def record(j, c, now, chat_msg_id=None):
         "id": eid, "t": now, "ticker": c["ticker"], "tier": c.get("tier"), "score": c.get("score"),
         "sources": c.get("sources") or [], "flags": c.get("flags") or [], "price": c.get("price"),
         "move_24h": c.get("move_24h"), "dtc": (c.get("si") or {}).get("dtc"),
-        "trends": (c.get("trends") or {}).get("ratio"), "fb": None, "msg": chat_msg_id, "out": {}})
+        "trends": (c.get("trends") or {}).get("ratio"), "pattern": c.get("pattern"),
+        "pattern_hits": c.get("pattern_hits"), "lex": c.get("lex"), "fb": None, "msg": chat_msg_id, "out": {}})
     return eid
 
 
@@ -116,6 +117,10 @@ def breakdown(entries):
         if e.get("fb") is not None:
             keys.append("👍 שלך" if e["fb"] > 0 else "👎 שלך")
         keys += [f"סימון: {f}" for f in e.get("flags") or []]
+        if e.get("channel"):
+            keys.append({"push": "📲 התראה מיידית", "extreme": "🚨 פעילות חריגה"}.get(e["channel"], "📋 רשימה יומית"))
+        if e.get("pattern") is not None:
+            keys.append("🎯 דפוס 4/4" if e["pattern"] == 4 else "🎯 דפוס 3/4" if e["pattern"] == 3 else "דפוס 0-2/4")
         for k in keys:
             groups.setdefault(k, []).append(e)
     return {k: stats(v) for k, v in sorted(groups.items())}

@@ -16,7 +16,9 @@ def _get(url, params=None, tries=3, timeout=30):
             if r.status_code == 200:
                 return r.json()
             if r.status_code in (422, 429, 500, 502, 503):
-                time.sleep(3 * (i + 1))
+                # Arctic Shift says how long to back off; respect it (capped so a run can't stall)
+                wait = r.headers.get("x-ratelimit-reset")
+                time.sleep(min(int(wait) + 1, 30) if wait and wait.isdigit() and r.status_code != 500 else 3 * (i + 1))
                 continue
             return None
         except requests.RequestException:
@@ -64,12 +66,14 @@ def price_context(ticker):
         t_last, p_last, _ = rows[-1]
         ref = next((c for t, c, _ in reversed(rows) if t <= t_last - 86400), rows[0][1])
         vol24 = sum(v for t, _, v in rows if t > t_last - 86400)
-        days = max(1, (rows[-1][0] - rows[0][0]) / 86400)
-        vol_avg = sum(v for _, _, v in rows) / days
+        before = [(t, v) for t, _, v in rows if t <= t_last - 86400]
+        days = max(1, (t_last - 86400 - rows[0][0]) / 86400)
+        vol_avg = sum(v for _, v in before) / days if before else 0
         meta = res.get("meta", {})
         return {"price": p_last, "move_24h": p_last / ref - 1 if ref else 0.0,
                 "rel_volume": vol24 / vol_avg if vol_avg else None,
-                "name": meta.get("longName") or meta.get("shortName") or ticker, "ok": True}
+                "name": meta.get("longName") or meta.get("shortName") or ticker, "ok": True,
+                "last_ts": t_last, "live": time.time() - t_last < 2 * 3600}
     except (TypeError, KeyError, IndexError, ZeroDivisionError):
         return {"ok": False}
 

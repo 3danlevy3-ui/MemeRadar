@@ -99,3 +99,21 @@ WEEKLY_DOW = _env("WEEKLY_DOW", 5, int)               # 5 = Saturday (Python wee
 WEEKLY_HOUR_UTC = _env("WEEKLY_HOUR_UTC", 6, int)     # 09:00 Israel
 MAX_OUTCOME_FETCH = _env("MAX_OUTCOME_FETCH", 6, int)
 PAGES_URL = _env("PAGES_URL", "")
+
+# --- calmer alerts (v4) -------------------------------------------------------
+PUSH_MIN_SCORE = _env("PUSH_MIN_SCORE", 70, int)      # instant push needs at least this score
+PUSH_MAX_PER_DAY = _env("PUSH_MAX_PER_DAY", 3, int)   # hard cap on instant pushes per day
+PUSH_COOLDOWN_H = _env("PUSH_COOLDOWN_H", 24, int)    # no second push for the same stock within this
+SUSTAIN_MIN = _env("SUSTAIN_MIN", 10, int)            # buzz must still be there on the next scan (~15 min) before a push
+DIGEST_HOUR_UTC = _env("DIGEST_HOUR_UTC", 12, int)    # daily list of stocks heating up (15:00 Israel, before US open)
+BIG_CAP_BUSD = _env("BIG_CAP_BUSD", 10.0, float)      # market cap (billion $) treated as too big to meme
+ST_MIN_OBS = _env("ST_MIN_OBS", 4, int)               # Stocktwits observations needed before trusting a burst
+
+# --- extreme activity (v5) ----------------------------------------------------
+EXTREME_MIN_MENTIONS = _env("EXTREME_MIN_MENTIONS", 25, int)   # mentions/hour pace
+EXTREME_MIN_AUTHORS = _env("EXTREME_MIN_AUTHORS", 12, int)
+EXTREME_BURST = _env("EXTREME_BURST", 20.0, float)             # x the stock's normal level
+EXTREME_SCORE = _env("EXTREME_SCORE", 85, int)
+EXTREME_PRICE_MOVE = _env("EXTREME_PRICE_MOVE", 20.0, float)   # % in 24h, with volume >= 4x
+EXTREME_MAX_PER_DAY = _env("EXTREME_MAX_PER_DAY", 3, int)
+EXTREME_COOLDOWN_H = _env("EXTREME_COOLDOWN_H", 6, int)

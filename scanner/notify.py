@@ -92,6 +92,9 @@ def fmt_alert(c, llm=None):
     tr = c.get("trends") or {}
     if tr.get("ratio") is not None:
         L.append(f"🔍 Google: החיפושים פי {tr['ratio']} מהשבוע שעבר")
+    if c.get("pattern") is not None:
+        star = "🎯🎯" if c["pattern"] == 4 else "🎯" if c["pattern"] == 3 else "▫️"
+        L.append(f"{star} דפוס היסטורי: {c['pattern']}/4" + (f" ({e('; '.join(c['pattern_hits']))})" if c["pattern_hits"] else ""))
     if c.get("flags"):
         L.append(" · ".join(e(f) for f in c["flags"]))
     if llm:

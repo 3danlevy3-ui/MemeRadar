@@ -77,26 +77,33 @@ def recent_sum(state, ticker, now, hours=6):
     return sum(state["hours"].get(k, {"T": {}})["T"].get(ticker, 0) for k in keys)
 
 
-def evaluate(state, m60, a60, total60, now):
-    """Score every ticker seen in the last hour; return candidates sorted by score."""
+def evaluate(state, m60, a60, total60, now, m20=None):
+    """Score every ticker seen in the last hour; return candidates sorted by score.
+
+    m20 (mentions in the last 20 minutes) lets a fresh spike count at its current pace
+    instead of being diluted over the whole hour, so the scanner catches buzz earlier."""
+    m20 = m20 or {}
     out = []
-    for t, cnt in m60.items():
-        if cnt < max(2, C.MIN_MENTIONS_1H // 2):
+    for t in set(m60) | set(m20):
+        cnt = m60.get(t, 0)
+        fast = 3 * m20.get(t, 0)                  # last-20-minute pace, per hour
+        eff = max(cnt, fast)
+        if eff < max(2, C.MIN_MENTIONS_1H // 2):
             continue
         base_h, base_share, hist = baseline(state, t, now)
         floor = C.MIN_BASELINE if hist >= C.MIN_HISTORY_HOURS else 1.0  # be stricter while warming up
-        burst = cnt / max(base_h, floor)
-        share = cnt / total60 if total60 else 0.0
+        burst = eff / max(base_h, floor)
+        share = eff / total60 if total60 else 0.0
         share_burst = share / max(base_share, 1e-4) if base_share else share / 1e-4 if share else 0.0
         authors = a60.get(t, 0)
-        fired = (cnt >= C.MIN_MENTIONS_1H and authors >= C.MIN_AUTHORS_1H and burst >= C.BURST_MULT
-                 and share_burst >= C.SHARE_MULT and t not in C.MEGA)
+        fired = (eff >= C.MIN_MENTIONS_1H and cnt >= C.MIN_MENTIONS_1H // 2 and authors >= C.MIN_AUTHORS_1H
+                 and burst >= C.BURST_MULT and share_burst >= C.SHARE_MULT and t not in C.MEGA)
         score = (45 * min(1.0, math.log(max(burst, 1)) / math.log(50))
                  + 25 * min(1.0, authors / 40)
                  + 20 * min(1.0, math.log(max(share_burst, 1)) / math.log(50)))
-        out.append({"ticker": t, "mentions_1h": cnt, "authors_1h": authors, "baseline_h": round(base_h, 2),
-                    "burst": round(burst, 1), "share_burst": round(share_burst, 1), "history_h": hist,
-                    "score": round(score), "fired": fired})
+        out.append({"ticker": t, "mentions_1h": cnt, "pace_1h": eff, "authors_1h": authors,
+                    "baseline_h": round(base_h, 2), "burst": round(burst, 1), "share_burst": round(share_burst, 1),
+                    "history_h": hist, "score": round(score), "fired": fired, "fast": fast > cnt})
     return sorted(out, key=lambda r: (-r["fired"], -r["score"]))
 
 
@@ -141,18 +148,26 @@ def should_alert(state, c, now):
 def st_update(state, ticker, st, bursting):
     """Keep an EMA of each ticker's normal Stocktwits message rate (only updated when not bursting)."""
     rates = state.setdefault("st_rate", {})
+    obs = state.setdefault("st_obs", {})
     prev = rates.get(ticker)
     if st and not bursting:
         rates[ticker] = st["rate_h"] if prev is None else round(0.8 * prev + 0.2 * st["rate_h"], 3)
+        obs[ticker] = obs.get(ticker, 0) + 1
     return prev
 
 
-def st_signal(st, ema, new_trending):
+def st_signal(st, ema, new_trending, n_obs=99):
+    """Returns (fired, burst, is_new). A ticker we have barely observed only fires when it is
+    newly trending AND very busy, so first sightings do not flood the phone."""
     if not st:
-        return False, None
+        return False, None, False
+    known = ema is not None and n_obs >= C.ST_MIN_OBS
     burst = st["n_1h"] / max(ema if ema is not None else 0.5, 0.5)
-    fired = st["n_1h"] >= C.ST_MIN_MSGS_1H and (burst >= C.ST_BURST_MULT or (ema is None and new_trending))
-    return fired, round(burst, 1)
+    if known:
+        fired = st["n_1h"] >= C.ST_MIN_MSGS_1H and burst >= C.ST_BURST_MULT
+    else:
+        fired = new_trending and st["n_1h"] >= 2 * C.ST_MIN_MSGS_1H
+    return fired, round(burst, 1), not known
 
 
 def x_signal(xc):
@@ -240,3 +255,109 @@ def apply_flags(c, q=None, earnings=None, trends=None):
     c["flags"] = flags
     c["score"] = int(max(0, min(100, c.get("score", 0) + adj)))
     return c
+
+
+# ---------------------------------------------------------------- historical pattern (research, Oct 2026)
+# In the 2024-26 backtest, buzz that turned into a +20% move differed from buzz that fizzled on four
+# things (same direction in both halves of the sample). All four together: 6 of 6 hit +20% in 3 days
+# among clear wins/fails, 75% of 8 overall. Small sample: treated as a soft boost and tracked live.
+LEXICON = {
+    "squeeze": r"squeez|short interest|\bsi\b|short sellers|days to cover|borrow|\bctb\b|\bftd|float|gamma",
+    "options": r"\bcalls?\b|\bputs?\b|strike|expir|\bleaps?\b|open interest",
+    "hype": r"\bmoon|yolo|tendies|rocket|lfg|\U0001F680|\U0001F48E|\U0001F98D",
+    "dd": r"\bdd\b|due diligence|thesis|valuation|revenue|catalyst|earnings|guidance",
+    "fomo": r"too late|fomo|missed|should i (buy|get in)|is it over|bag ?hold|when to sell",
+}
+
+
+def lexicon(texts):
+    import re
+    joined = " ".join(texts or []).lower()
+    words = max(len(joined.split()), 1)
+    return {k: round(1000 * len(re.findall(rx, joined)) / words, 1) for k, rx in LEXICON.items()}
+
+
+def pattern(c, state, journal_entries, now):
+    """How many of the four historical 'winner' conditions hold right now."""
+    t = c["ticker"]
+    last2 = recent_sum(state, t, now, 2)
+    prev4 = recent_sum(state, t, now, 6) - last2
+    accel = (last2 / 2) / max(prev4 / 4, 0.25)
+    others = len({e["ticker"] for e in journal_entries if now - e["t"] < 48 * 3600 and e["ticker"] != t})
+    conds = [
+        ("גל מם: מניות אחרות התריעו ב-48 השעות האחרונות", others >= 1),
+        ("מחזור המסחר פי 3 ומעלה מהרגיל", (c.get("rel_volume") or 0) >= 3),
+        ("המחיר כבר עלה 10%+ ב-24 שעות", (c.get("move_24h") or 0) >= 10),
+        ("השיח מאיץ: השעתיים האחרונות פי 6 מקודם", accel >= 6),
+    ]
+    hits = [name for name, ok in conds if ok]
+    c["pattern"] = len(hits)
+    c["pattern_hits"] = hits
+    c["accel"] = round(accel, 1)
+    if len(hits) == 4:
+        c["score"] = min(100, c.get("score", 0) + 15)
+    elif len(hits) == 3:
+        c["score"] = min(100, c.get("score", 0) + 8)
+    return c
+
+
+def channel(c, state, now):
+    """push = instant phone alert, digest = goes to the daily list of stocks heating up."""
+    t = c["ticker"]
+    heat = state.setdefault("heat", {})
+    times = [x for x in heat.get(t, []) if now - x < 3 * 3600] + [now]
+    heat[t] = times
+    if c.get("influencer"):
+        return "push", "influencer"
+    if any("ספאם" in f for f in c.get("flags") or []):
+        return "digest", "spam"
+    c["extreme_reasons"] = is_extreme(c)
+    if c["extreme_reasons"]:
+        day = time.strftime("%Y%m%d", time.gmtime(now))
+        ex = state.setdefault("extreme", {})
+        if ex.get("day") != day:
+            ex.clear()
+            ex.update(day=day, n=0, last={})
+        recent = now - ex["last"].get(t, 0) < C.EXTREME_COOLDOWN_H * 3600
+        if not recent and ex["n"] < C.EXTREME_MAX_PER_DAY:
+            ex["n"] += 1
+            ex["last"][t] = now
+            return "extreme", "extreme"
+    if (c.get("mcap_b") or 0) >= C.BIG_CAP_BUSD:
+        return "digest", "big company"
+    exceptional = c.get("score", 0) >= 90 and c.get("pattern") == 4
+    if c.get("market_live") is False and not exceptional:
+        return "digest", "market closed"
+    strong = c.get("score", 0) >= C.PUSH_MIN_SCORE and (len(c.get("sources") or []) >= 2 or (c.get("pattern") or 0) >= 3)
+    sustained = now - min(times) >= C.SUSTAIN_MIN * 60
+    if not (strong and (sustained or exceptional)):
+        return "digest", "not strong/sustained yet"
+    day = time.strftime("%Y%m%d", time.gmtime(now))
+    pushes = state.setdefault("pushes", {})
+    if pushes.get("day") != day:
+        pushes.clear()
+        pushes.update(day=day, n=0)
+    prev = state["alerts"].get(t)
+    if prev and now - prev["time"] < C.PUSH_COOLDOWN_H * 3600:
+        return "digest", "already pushed"
+    if pushes["n"] >= C.PUSH_MAX_PER_DAY:
+        return "digest", "daily cap"
+    pushes["n"] += 1
+    return "push", "ok"
+
+
+def is_extreme(c):
+    """Very unusual activity worth acting on now. Returns a list of Hebrew reasons (empty = not extreme)."""
+    r = []
+    if (c.get("pace_1h") or c.get("mentions_1h") or 0) >= C.EXTREME_MIN_MENTIONS and \
+            (c.get("authors_1h") or 0) >= C.EXTREME_MIN_AUTHORS and (c.get("burst") or 0) >= C.EXTREME_BURST:
+        r.append(f"התפרצות ברדיט: קצב של {c.get('pace_1h') or c.get('mentions_1h')} אזכורים בשעה מ-{c['authors_1h']} אנשים שונים")
+    if len(c.get("sources") or []) >= 3:
+        r.append("כל המקורות נדלקו בבת אחת")
+    if c.get("pattern") == 4:
+        r.append("כל 4 התנאים שקדמו לזינוקים בעבר מתקיימים")
+    if c.get("market_live") and (c.get("move_24h") or 0) >= C.EXTREME_PRICE_MOVE and (c.get("rel_volume") or 0) >= 4:
+        r.append(f"המחיר כבר זינק {c['move_24h']:.0f}% עם מחזור פי {c['rel_volume']:g} מהרגיל")
+    if c.get("score", 0) >= C.EXTREME_SCORE and len(c.get("sources") or []) >= 2:
+        r.append(f"ציון גבוה במיוחד ({c['score']}) משני מקורות")
+    return r
