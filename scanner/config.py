@@ -97,7 +97,7 @@ POSITION_PCT = _env("POSITION_PCT", 2.0, float)       # % of portfolio per idea
 TRADE_COST = _env("TRADE_COST", 0.005, float)
 WEEKLY_DOW = _env("WEEKLY_DOW", 5, int)               # 5 = Saturday (Python weekday)
 WEEKLY_HOUR_UTC = _env("WEEKLY_HOUR_UTC", 6, int)     # 09:00 Israel
-MAX_OUTCOME_FETCH = _env("MAX_OUTCOME_FETCH", 6, int)
+MAX_OUTCOME_FETCH = _env("MAX_OUTCOME_FETCH", 15, int)
 PAGES_URL = _env("PAGES_URL", "")
 
 # --- calmer alerts (v4) -------------------------------------------------------
@@ -117,3 +117,17 @@ EXTREME_SCORE = _env("EXTREME_SCORE", 85, int)
 EXTREME_PRICE_MOVE = _env("EXTREME_PRICE_MOVE", 20.0, float)   # % in 24h, with volume >= 4x
 EXTREME_MAX_PER_DAY = _env("EXTREME_MAX_PER_DAY", 3, int)
 EXTREME_COOLDOWN_H = _env("EXTREME_COOLDOWN_H", 6, int)
+
+# --- mid-size moves track, paper only (v6) -----------------------------------
+# Looser buzz rule, no phone message: every hit is logged and paper-traded with three
+# target/stop rules so the data can show which one (if any) works. See analysis/midtrack.py.
+MID_ENABLED = _env("MID_ENABLED", "1") == "1"
+MID_MIN_PACE = _env("MID_MIN_PACE", 4, int)          # mentions/hour pace
+MID_MIN_AUTHORS = _env("MID_MIN_AUTHORS", 2, int)
+MID_BURST = _env("MID_BURST", 3.0, float)            # x the stock's normal level
+MID_PER_RUN = _env("MID_PER_RUN", 6, int)            # price lookups per run for this track
+MID_MAX_PER_DAY = _env("MID_MAX_PER_DAY", 30, int)
+MID_COOLDOWN_H = _env("MID_COOLDOWN_H", 24, int)     # same stock logged at most once a day
+MID_VOL_MULT = _env("MID_VOL_MULT", 3.0, float)      # the 'volume confirms' sub-group
+MID_COST = _env("MID_COST", 0.01, float)             # round-trip spread + fees, small caps
+MID_RULES = [(0.10, 0.07, 2), (0.15, 0.08, 3), (0.20, 0.10, 3)]   # (target, stop, days)

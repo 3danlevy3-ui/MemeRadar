@@ -22,6 +22,26 @@ def record(j, c, now, chat_msg_id=None):
     return eid
 
 
+def main_entries(entries):
+    """Alerts that were (or could have been) sent to the phone. The paper-only mid track is kept apart."""
+    return [e for e in entries if e.get("track") != "mid"]
+
+
+def mid_entries(entries):
+    return [e for e in entries if e.get("track") == "mid"]
+
+
+def record_mid(j, c, now):
+    """Log a paper-only 'mid-size move' candidate. No message is sent for these."""
+    eid = f"mid-{c['ticker']}-{now}"
+    j["entries"].append({
+        "id": eid, "t": now, "ticker": c["ticker"], "track": "mid", "price": c.get("price"),
+        "live": c.get("market_live"), "move_24h": c.get("move_24h"), "rel_volume": c.get("rel_volume"),
+        "pace": c.get("pace_1h"), "authors": c.get("authors_1h"), "burst": c.get("burst"),
+        "fired_main": bool(c.get("fired")), "sources": ["Reddit"], "out": {}})
+    return eid
+
+
 def set_feedback(j, eid, val):
     for e in j["entries"]:
         if e["id"] == eid:
@@ -36,7 +56,14 @@ def _evaluate(e, bars, now):
     after = [b for b in bars if b[0] >= t0 - 1800]
     if not after:
         return
-    entry = e.get("price") or after[0][1]
+    if e.get("live") is False:   # market closed at alert time: the first real chance to buy is the next bar
+        nxt = [b for b in bars if b[0] >= t0]
+        if not nxt:
+            return
+        after = nxt
+        entry = nxt[0][1]
+    else:
+        entry = e.get("price") or after[0][1]
     if not entry:
         return
     out = e["out"]
@@ -55,7 +82,9 @@ def _evaluate(e, bars, now):
     if w3:
         out["max3d"] = round(max(x[2] for x in w3) / entry - 1, 4)
         out["min3d"] = round(min(x[3] for x in w3) / entry - 1, 4)
-    if now >= t0 + C.HOLD_DAYS * DAY and "sim" not in out and w3:
+    if e.get("track") == "mid":
+        _evaluate_mid(e, after, entry, now)
+    elif now >= t0 + C.HOLD_DAYS * DAY and "sim" not in out and w3:
         res = None
         for _, _, h, l, _ in w3:            # stop first if both in one bar (conservative)
             if l <= entry * (1 - C.STOP_PCT):
@@ -69,6 +98,25 @@ def _evaluate(e, bars, now):
         out["sim"] = round(res - C.TRADE_COST, 4)
     if now >= t0 + 10 * DAY:
         out["done"] = True
+
+
+def _simulate(bars, entry, tp, sl, cost):
+    for _, _, h, l, _ in bars:          # stop first if both in one bar (conservative)
+        if l <= entry * (1 - sl):
+            return round(-sl - cost, 4)
+        if h >= entry * (1 + tp):
+            return round(tp - cost, 4)
+    return round(bars[-1][4] / entry - 1 - cost, 4)
+
+
+def _evaluate_mid(e, after, entry, now):
+    """Paper-trade a mid-track entry with every rule in MID_RULES (e.g. sim15 = +15% target)."""
+    out, t0 = e["out"], e["t"]
+    for tp, sl, days in C.MID_RULES:
+        key = f"sim{round(tp * 100)}"
+        w = [x for x in after if x[0] <= t0 + days * DAY]
+        if now >= t0 + days * DAY and key not in out and w:
+            out[key] = _simulate(w, entry, tp, sl, C.MID_COST)
 
 
 def update_outcomes(j, now, bars_fn, limit=None):
@@ -134,3 +182,36 @@ def weekly_due(j, now):
 
 def prune(j, now, keep_days=400):
     j["entries"] = [e for e in j["entries"] if now - e["t"] < keep_days * DAY]
+
+
+def mid_stats(entries):
+    """Scorecard for the mid track: how often +10/15/20% came, how often -10%, and each paper rule."""
+    ev = [e for e in entries if "max3d" in e["out"]]
+    def pct(xs):
+        return round(100 * sum(xs) / len(xs)) if xs else None
+    res = {"n": len(entries), "evaluated": len(ev),
+           "hit10": pct([e["out"]["max3d"] >= 0.10 for e in ev]),
+           "hit15": pct([e["out"]["max3d"] >= 0.15 for e in ev]),
+           "hit20": pct([e["out"]["max3d"] >= 0.20 for e in ev]),
+           "dd10": pct([e["out"]["min3d"] <= -0.10 for e in ev]), "rules": {}}
+    for tp, sl, days in C.MID_RULES:
+        k = f"sim{round(tp * 100)}"
+        xs = [e["out"][k] for e in entries if k in e["out"]]
+        res["rules"][k] = {"label": f"+{round(tp * 100)}% / −{round(sl * 100)}% / {days} ימים", "n": len(xs),
+                           "mean": round(100 * sum(xs) / len(xs), 1) if xs else None,
+                           "win": pct([x > 0 for x in xs]), "total": round(100 * sum(xs), 1) if xs else None}
+    return res
+
+
+def mid_breakdown(entries):
+    """Mid-track scorecards per sub-group, so the data can tell which filter adds an edge."""
+    vol = C.MID_VOL_MULT
+    groups = {
+        "כל המסלול": entries,
+        f"מחזור פי {vol:g}+": [e for e in entries if (e.get("rel_volume") or 0) >= vol],
+        f"מחזור רגיל": [e for e in entries if (e.get("rel_volume") or 0) < vol],
+        "המחיר עוד לא זז (<10%)": [e for e in entries if (e.get("move_24h") or 0) < 10],
+        "המחיר כבר עלה 10%+": [e for e in entries if (e.get("move_24h") or 0) >= 10],
+        "עברה גם את הסף הרגיל": [e for e in entries if e.get("fired_main")],
+    }
+    return {k: mid_stats(v) for k, v in groups.items() if v}

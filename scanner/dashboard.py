@@ -38,6 +38,9 @@ th{color:var(--muted);font-weight:500;font-size:12px}.tw{overflow-x:auto}.n{font
 <div class="tiles" id="tiles"></div>
 <div class="card"><h2>רווח/הפסד על נייר לפי כללי הניסוי</h2><div class="muted" id="rules"></div><div class="chart" id="pnl"></div></div>
 <div class="card"><h2>מה עובד: +20% תוך 3 ימים לפי קבוצה</h2><div class="chart" id="groups"></div></div>
+<div class="card"><h2>🔬 מסלול הניסוי: תנועות של 10%-20%</h2>
+<div class="muted">מניות עם שיח מוגבר (פי 3 מהרגיל) שלא קיבלת עליהן הודעה. כל אחת נבדקת על הנייר עם שלושה כללים, אחרי עלות של <span id="midcost"></span>% לעסקה. מחפשים קבוצה שבה העסקה הממוצעת חיובית לאורך זמן.</div>
+<div class="tw" id="mid"></div></div>
 <div class="card"><h2>כל ההתראות</h2><div class="tw"><table id="alerts"></table></div></div>
 <div class="card"><h2>מצב המקורות היום</h2><div id="health"></div></div>
 <p class="muted">תוצאות על נייר, לא ייעוץ השקעות. עם מעט התראות המספרים רועשים מאוד.</p>
@@ -46,7 +49,7 @@ th{color:var(--muted);font-weight:500;font-size:12px}.tw{overflow-x:auto}.n{font
 const D=__DATA__;
 const $=id=>document.getElementById(id),NS="http://www.w3.org/2000/svg";
 function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e}
-const pct=v=>v==null?"—":(v>0?"+":"")+v+"%";
+const pct=v=>v==null?"—":(v>0?"+":"")+v+"%",rate=v=>v==null?"—":v+"%";
 $("upd").textContent="עודכן: "+new Date(D.updated*1000).toLocaleString("he-IL",{timeZone:"Asia/Jerusalem"});
 $("rules").textContent=`כניסה במחיר ההתראה, מימוש ב-+${D.rules.tp}%, סטופ ב-−${D.rules.sl}%, עד ${D.rules.days} ימים, עלות ${D.rules.cost}% לעסקה`;
 const S=D.all,W=D.week;
@@ -75,6 +78,16 @@ const S=D.all,W=D.week;
   <td class="tk">$${e.ticker}</td><td>${e.tier==="EARLY"?"🟢":"🟠"}</td><td class="n">${e.score??""}</td><td>${(e.sources||[]).join(" + ")}</td>
   <td class="n">${e.price??""}</td><td>${p(o.r1d)}</td><td>${p(o.r3d)}</td><td>${p(o.max3d)}</td><td>${p(o.min3d)}</td><td>${p(o.sim)}</td>
   <td>${e.fb==null?"":e.fb>0?"👍":"👎"}</td></tr>`}).join("")})();
+$("midcost").textContent=D.mid_cost;
+(function(){const host=$("mid"),M=D.mid||{},ks=Object.keys(M);
+ if(!ks.length||!M[ks[0]].n){host.innerHTML='<div class="empty">עוד לא נרשמו מניות במסלול.</div>';return}
+ const rk=Object.keys(M[ks[0]].rules);
+ let h="<table><tr><th>קבוצה</th><th>נרשמו</th><th>עם תוצאה</th><th>הגיעו ל-+10%</th><th>ל-+20%</th><th>ירדו 10%</th>"+
+  rk.map(k=>`<th>${M[ks[0]].rules[k].label}</th>`).join("")+"</tr>";
+ const cell=r=>r.mean==null?'<span class="pill nt">…</span>':`<span class="pill ${r.mean>=0?"up":"dn"}">${pct(r.mean)}</span> <span class="muted">n=${r.n}</span>`;
+ ks.forEach(k=>{const v=M[k];h+=`<tr><td>${k}</td><td class="n">${v.n}</td><td class="n">${v.evaluated}</td><td class="n">${rate(v.hit10)}</td><td class="n">${rate(v.hit20)}</td><td class="n">${rate(v.dd10)}</td>`+
+  rk.map(r=>`<td>${cell(v.rules[r])}</td>`).join("")+"</tr>"});
+ host.innerHTML=h+"</table>"})();
 (function(){const h=D.health||{};const k=Object.keys(h);$("health").innerHTML=k.length?k.sort().map(n=>{const [ok,bad]=h[n];
  return `<div>${bad===0?"✅":ok?"⚠️":"❌"} ${n}: ${ok}/${ok+bad} הצליחו</div>`}).join(""):'<div class="muted">אין עדיין נתונים להיום</div>'})();
 </script></body></html>
@@ -84,10 +97,12 @@ const S=D.all,W=D.week;
 def build(jr, state, now=None, path=None):
     now = now or int(time.time())
     path = path or C.DASHBOARD_PATH
-    week = [e for e in jr["entries"] if now - e["t"] < 7 * 86400]
+    main_e = journal.main_entries(jr["entries"])
+    week = [e for e in main_e if now - e["t"] < 7 * 86400]
     data = {
-        "updated": now, "all": journal.stats(jr["entries"]), "week": journal.stats(week),
-        "groups": journal.breakdown(jr["entries"]), "entries": jr["entries"][-300:],
+        "updated": now, "all": journal.stats(main_e), "week": journal.stats(week),
+        "groups": journal.breakdown(main_e), "entries": main_e[-300:],
+        "mid": journal.mid_breakdown(journal.mid_entries(jr["entries"])), "mid_cost": round(C.MID_COST * 100, 1),
         "health": (state.get("health") or {}).get("src", {}),
         "rules": {"tp": round(C.TP_PCT * 100), "sl": round(C.STOP_PCT * 100), "days": C.HOLD_DAYS,
                   "cost": round(C.TRADE_COST * 100, 2)},

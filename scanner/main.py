@@ -135,11 +135,13 @@ def run(dry=False, verbose=False):
         due, week = journal.weekly_due(jr, now)
         if not (due or force):
             return
-        wk = [e for e in jr["entries"] if now - e["t"] < 7 * 86400]
-        groups = journal.breakdown(jr["entries"])
-        text = notify.fmt_weekly(journal.stats(wk), journal.stats(jr["entries"]), groups,
-                                 sorted(wk, key=lambda e: -(e.get("score") or 0)), C.PAGES_URL)
-        png = charts.weekly_chart(jr["entries"], groups) if C.USE_CHARTS else None
+        main_e = journal.main_entries(jr["entries"])
+        wk = [e for e in main_e if now - e["t"] < 7 * 86400]
+        groups = journal.breakdown(main_e)
+        text = notify.fmt_weekly(journal.stats(wk), journal.stats(main_e), groups,
+                                 sorted(wk, key=lambda e: -(e.get("score") or 0)), C.PAGES_URL,
+                                 mid=journal.mid_breakdown(journal.mid_entries(jr["entries"])))
+        png = charts.weekly_chart(main_e, groups) if C.USE_CHARTS else None
         send(text, photo=png, urgent=force)
         if not force:
             jr["last_weekly"] = week
@@ -299,7 +301,7 @@ def run(dry=False, verbose=False):
                 c["trends"] = cached(state, "trends", t, 3, sources.google_trends)
                 health(state, "google_trends", c["trends"] is not None)
             signals.apply_flags(c, qual.get(t), t in earn, c.get("trends"))
-            signals.pattern(c, state, jr["entries"], now)
+            signals.pattern(c, state, journal.main_entries(jr["entries"]), now)
             all_texts = texts.get(t, []) + c.pop("_st_texts", [])
             c["lex"] = signals.lexicon(all_texts)
             analysis = llm.analyse(t, all_texts)
@@ -340,6 +342,33 @@ def run(dry=False, verbose=False):
             health(state, "errors", False)
             state.setdefault("last_errors", []).append([now, "alert " + str(t), _where(ex)])
             state["last_errors"] = state["last_errors"][-10:]
+
+    # ---------------- mid-size moves track: paper only, never messages the phone
+    try:
+        if C.MID_ENABLED:
+            mids = journal.mid_entries(jr["entries"])
+            last_mid = {x["ticker"]: x["t"] for x in mids}
+            left = min(C.MID_PER_RUN, C.MID_MAX_PER_DAY - sum(1 for x in mids if now - x["t"] < 86400))
+            cands = sorted((r for r in reddit.values()
+                            if r["ticker"] not in C.MEGA and r["pace_1h"] >= C.MID_MIN_PACE
+                            and r["authors_1h"] >= C.MID_MIN_AUTHORS and r["burst"] >= C.MID_BURST
+                            and now - last_mid.get(r["ticker"], 0) >= C.MID_COOLDOWN_H * 3600),
+                           key=lambda r: -r["score"])
+            for r in cands:
+                if left <= 0:
+                    break
+                left -= 1
+                px = sources.price_context(r["ticker"])
+                if not px.get("ok"):
+                    continue
+                journal.record_mid(jr, dict(r, price=round(px["price"], 4), move_24h=round(px["move_24h"] * 100, 1),
+                                            rel_volume=round(px["rel_volume"], 1) if px.get("rel_volume") else None,
+                                            market_live=px.get("live")), now)
+    except Exception as ex:  # keep scanning even if this part breaks
+        print("mid track error", repr(ex))
+        health(state, "errors", False)
+        state.setdefault("last_errors", []).append([now, "mid", _where(ex)])
+        state["last_errors"] = state["last_errors"][-10:]
 
     try:
         for x in signals.check_exits(state, now, sources.price_context):

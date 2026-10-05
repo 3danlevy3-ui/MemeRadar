@@ -149,7 +149,28 @@ def _fmt_stats(st):
     return " · ".join(parts)
 
 
-def fmt_weekly(week_stats, all_stats, groups, top, pages_url=""):
+def fmt_mid(mid):
+    """Weekly block for the paper-only 10-20% track."""
+    if not mid:
+        return []
+    allm = mid.get("כל המסלול") or {}
+    L = ["\n🔬 <b>מסלול הניסוי: תנועות של 10%-20%</b>",
+         "<i>מניות עם שיח מוגבר שלא קיבלת עליהן הודעה. נבדקות על הנייר בלבד.</i>"]
+    if not allm.get("evaluated"):
+        L.append(f"נרשמו {allm.get('n', 0)} מניות. התוצאות הראשונות יגיעו אחרי 3 ימים.")
+        return L
+    for k, v in mid.items():
+        if not v["evaluated"]:
+            continue
+        best = [r for r in v["rules"].values() if r["n"]]
+        rules = " · ".join(f"{r['label']}: {r['mean']:+.1f}% לעסקה" for r in best)
+        L.append(f"• <b>{e(k)}</b> (n={v['evaluated']}): הגיעו ל-+10% ב-{v['hit10']}%, ל-+20% ב-{v['hit20']}%, "
+                 f"ירדו 10% ב-{v['dd10']}%" + (f"\n   {rules}" if rules else ""))
+    L.append("<i>מה שחשוב: באיזו קבוצה העסקה הממוצעת חיובית, לאורך כמה שבועות ועם n של 30 ומעלה.</i>")
+    return L
+
+
+def fmt_weekly(week_stats, all_stats, groups, top, pages_url="", mid=None):
     L = ["📊 <b>MemeRadar: סיכום שבועי</b>", f"<b>השבוע:</b> {_fmt_stats(week_stats)}",
          f"<b>מההתחלה:</b> {_fmt_stats(all_stats)}"]
     if all_stats.get("sim_total") is not None:
@@ -167,6 +188,7 @@ def fmt_weekly(week_stats, all_stats, groups, top, pages_url=""):
             m = f"שיא {o['max3d'] * 100:+.0f}% / שפל {o['min3d'] * 100:+.0f}%" if "max3d" in o else "ממתין לתוצאה"
             fb = {1: " 👍", -1: " 👎"}.get(x.get("fb"), "")
             L.append(f"• ${e(x['ticker'])} ({e(' + '.join(x['sources']))}): {m}{fb}")
+    L += fmt_mid(mid)
     if pages_url:
         L.append(f"\n<a href='{e(pages_url)}'>לוח הבקרה המלא</a>")
     L.append("<i>תוצאות על נייר. עם מעט התראות המספרים עוד רועשים מאוד.</i>")

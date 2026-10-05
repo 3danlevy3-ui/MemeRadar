@@ -57,7 +57,7 @@ def handle_command(text, state, jr, on_report):
     if cmd in ("/help", "/start"):
         notify.send(notify.HELP)
     elif cmd == "/status":
-        notify.send(notify.fmt_status(state, journal.stats(jr["entries"]), C.PAGES_URL))
+        notify.send(notify.fmt_status(state, journal.stats(journal.main_entries(jr["entries"])), C.PAGES_URL))
     elif cmd == "/open":
         opened = {t: a for t, a in state.get("alerts", {}).items() if not a.get("closed")}
         if not opened:
