@@ -206,6 +206,8 @@ def options_activity(ticker, expiries=2):
         rows = r.json()["data"]["table"]["rows"]
     except (requests.RequestException, ValueError, KeyError, TypeError):
         return None
+    if not rows:            # stock with no listed options: Nasdaq returns rows = null
+        return {"call_vol": 0, "put_vol": 0, "cp_ratio": None, "call_vol_oi": None}
     groups, cv, pv, coi = 0, 0.0, 0.0, 0.0
     for row in rows:
         if row.get("expirygroup"):
