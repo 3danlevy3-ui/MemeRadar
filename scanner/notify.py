@@ -231,3 +231,24 @@ def fmt_status(state, journal_stats, pages_url=""):
     if pages_url:
         L.append(f"<a href='{e(pages_url)}'>לוח הבקרה</a>")
     return "\n".join(L)
+
+
+def _il(ts):
+    """Israel time as HH:MM (DD.MM), without extra dependencies."""
+    try:
+        from zoneinfo import ZoneInfo
+        import datetime as dt
+        d = dt.datetime.fromtimestamp(ts, ZoneInfo("Asia/Jerusalem"))
+    except Exception:
+        import datetime as dt
+        d = dt.datetime.utcfromtimestamp(ts + 3 * 3600)
+    return d.strftime("%H:%M (%d.%m)")
+
+
+def fmt_gap(last, now):
+    hours = (now - last) / 3600
+    dur = f"{hours:.1f} שעות" if hours >= 1.5 else f"{round(hours * 60)} דקות"
+    return (f"⏸️ <b>הסורק לא רץ במשך {dur}</b>\n"
+            f"מ-{_il(last)} עד {_il(now)} שעון ישראל.\n"
+            "בזמן הזה לא נסרק כלום, אז ייתכן שפספסנו תנועות. בדרך כלל זו תקלה אצל GitHub ולא אצלנו. "
+            "עכשיו הוא חזר לעבוד.")

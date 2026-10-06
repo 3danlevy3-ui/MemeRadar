@@ -146,6 +146,15 @@ def run(dry=False, verbose=False):
         if not force:
             jr["last_weekly"] = week
 
+    # Scans can silently not happen (e.g. GitHub had no machine to run them). Our code cannot report
+    # that while it is not running, so the first scan afterwards says how long the gap was.
+    try:
+        last = state.get("last_run") or 0
+        if last and now - last > C.GAP_ALERT_MIN * 60:
+            send(notify.fmt_gap(last, now), urgent=True)
+    except Exception as ex:  # keep scanning even if this part breaks
+        print("gap notice error", repr(ex))
+
     try:
         if not dry:
             bot.poll(state, jr, weekly)
@@ -284,10 +293,14 @@ def run(dry=False, verbose=False):
             if px.get("ok"):
                 c.update(price=round(px["price"], 4), move_24h=round(px["move_24h"] * 100, 1),
                          rel_volume=round(px["rel_volume"], 1) if px.get("rel_volume") else None, name=px.get("name"),
-                         market_live=px.get("live"))
+                         market_live=px.get("live"), etf=px.get("etf"), dollar_vol_m=px.get("dollar_vol_m"))
             sh = cached(state, "shares", t, 24 * 7, sources.shares_outstanding)
             if sh and c.get("price"):
                 c["mcap_b"] = round(sh * c["price"] / 1e9, 1)
+            if signals.too_big(c) and not c.get("influencer"):
+                if verbose:
+                    print(t, "-> skipped:", signals.too_big(c))
+                continue
             if C.USE_SHORT_INTEREST:
                 c["si"] = cached(state, "si", t, 12, sources.short_interest)
                 if c["si"] and sh:
@@ -310,6 +323,8 @@ def run(dry=False, verbose=False):
             if verbose:
                 print({k: v for k, v in c.items() if not k.startswith("_")})
             ch, why_ch = signals.channel(c, state, now)
+            if ch == "skip":
+                continue
             c["channel"] = ch
             eid = journal.record(jr, c, now)
             jr["entries"][-1]["channel"] = ch
@@ -360,6 +375,11 @@ def run(dry=False, verbose=False):
                 left -= 1
                 px = sources.price_context(r["ticker"])
                 if not px.get("ok"):
+                    continue
+                sh = cached(state, "shares", r["ticker"], 24 * 7, sources.shares_outstanding)
+                size = dict(ticker=r["ticker"], etf=px.get("etf"), dollar_vol_m=px.get("dollar_vol_m"),
+                            mcap_b=round(sh * px["price"] / 1e9, 1) if sh else None)
+                if signals.too_big(size):
                     continue
                 journal.record_mid(jr, dict(r, price=round(px["price"], 4), move_24h=round(px["move_24h"] * 100, 1),
                                             rel_volume=round(px["rel_volume"], 1) if px.get("rel_volume") else None,

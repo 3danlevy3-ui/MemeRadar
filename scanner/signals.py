@@ -309,6 +309,8 @@ def channel(c, state, now):
     heat[t] = times
     if c.get("influencer"):
         return "push", "influencer"
+    if too_big(c):
+        return "skip", "big company"
     if any("ספאם" in f for f in c.get("flags") or []):
         return "digest", "spam"
     c["extreme_reasons"] = is_extreme(c)
@@ -323,8 +325,6 @@ def channel(c, state, now):
             ex["n"] += 1
             ex["last"][t] = now
             return "extreme", "extreme"
-    if (c.get("mcap_b") or 0) >= C.BIG_CAP_BUSD:
-        return "digest", "big company"
     exceptional = c.get("score", 0) >= 90 and c.get("pattern") == 4
     if c.get("market_live") is False and not exceptional:
         return "digest", "market closed"
@@ -346,6 +346,19 @@ def channel(c, state, now):
     return "push", "ok"
 
 
+def too_big(c):
+    """Giants and funds that forum chatter cannot move. Returns a Hebrew reason, or '' if the stock is in scope."""
+    if c["ticker"] in C.ALWAYS_TRACK:
+        return ""
+    if c["ticker"] in C.MEGA or c.get("etf"):
+        return "קרן סל או מדד"
+    if c.get("mcap_b") is not None:
+        return f"שווי של כ-{c['mcap_b']:,.0f} מיליארד $" if c["mcap_b"] >= C.BIG_CAP_BUSD else ""
+    if (c.get("dollar_vol_m") or 0) >= C.BIG_DOLLAR_VOL_M:
+        return "נסחרת בהיקף של חברת ענק"
+    return ""
+
+
 def is_extreme(c):
     """Very unusual activity worth acting on now. Returns a list of Hebrew reasons (empty = not extreme)."""
     r = []
@@ -360,4 +373,7 @@ def is_extreme(c):
         r.append(f"המחיר כבר זינק {c['move_24h']:.0f}% עם מחזור פי {c['rel_volume']:g} מהרגיל")
     if c.get("score", 0) >= C.EXTREME_SCORE and len(c.get("sources") or []) >= 2:
         r.append(f"ציון גבוה במיוחד ({c['score']}) משני מקורות")
-    return r
+    # extreme = the buzz itself is extreme, confirmed by at least one more sign.
+    # A price jump alone is usually news, not forum buzz.
+    buzz = any(x.startswith("התפרצות") or x.startswith("כל המקורות") for x in r)
+    return r if buzz and len(r) >= 2 else []

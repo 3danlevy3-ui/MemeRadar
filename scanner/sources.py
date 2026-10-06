@@ -73,6 +73,8 @@ def price_context(ticker):
         return {"price": p_last, "move_24h": p_last / ref - 1 if ref else 0.0,
                 "rel_volume": vol24 / vol_avg if vol_avg else None,
                 "name": meta.get("longName") or meta.get("shortName") or ticker, "ok": True,
+                "etf": (meta.get("instrumentType") or "").upper() in ("ETF", "MUTUALFUND", "INDEX"),
+                "dollar_vol_m": round(vol_avg * p_last / 1e6, 1) if vol_avg else None,
                 "last_ts": t_last, "live": time.time() - t_last < 2 * 3600}
     except (TypeError, KeyError, IndexError, ZeroDivisionError):
         return {"ok": False}

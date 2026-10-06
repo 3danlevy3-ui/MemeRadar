@@ -106,7 +106,9 @@ PUSH_MAX_PER_DAY = _env("PUSH_MAX_PER_DAY", 3, int)   # hard cap on instant push
 PUSH_COOLDOWN_H = _env("PUSH_COOLDOWN_H", 24, int)    # no second push for the same stock within this
 SUSTAIN_MIN = _env("SUSTAIN_MIN", 10, int)            # buzz must still be there on the next scan (~15 min) before a push
 DIGEST_HOUR_UTC = _env("DIGEST_HOUR_UTC", 12, int)    # daily list of stocks heating up (15:00 Israel, before US open)
-BIG_CAP_BUSD = _env("BIG_CAP_BUSD", 10.0, float)      # market cap (billion $) treated as too big to meme
+BIG_CAP_BUSD = _env("BIG_CAP_BUSD", 5.0, float)       # market cap (billion $) above this = too big for forum buzz: ignored
+BIG_DOLLAR_VOL_M = _env("BIG_DOLLAR_VOL_M", 500.0, float)  # if market cap is unknown: $M traded per day that marks a giant
+ALWAYS_TRACK = set(_env("ALWAYS_TRACK", "GME,AMC").split(","))  # classic memes, tracked whatever their size
 ST_MIN_OBS = _env("ST_MIN_OBS", 4, int)               # Stocktwits observations needed before trusting a burst
 
 # --- extreme activity (v5) ----------------------------------------------------
@@ -131,3 +133,6 @@ MID_COOLDOWN_H = _env("MID_COOLDOWN_H", 24, int)     # same stock logged at most
 MID_VOL_MULT = _env("MID_VOL_MULT", 3.0, float)      # the 'volume confirms' sub-group
 MID_COST = _env("MID_COST", 0.01, float)             # round-trip spread + fees, small caps
 MID_RULES = [(0.10, 0.07, 2), (0.15, 0.08, 3), (0.20, 0.10, 3)]   # (target, stop, days)
+
+# --- downtime notice (v7) ----------------------------------------------------------
+GAP_ALERT_MIN = _env("GAP_ALERT_MIN", 60, int)   # tell the phone when scans were missing for longer than this

@@ -18,7 +18,7 @@ def record(j, c, now, chat_msg_id=None):
         "sources": c.get("sources") or [], "flags": c.get("flags") or [], "price": c.get("price"),
         "move_24h": c.get("move_24h"), "dtc": (c.get("si") or {}).get("dtc"),
         "trends": (c.get("trends") or {}).get("ratio"), "pattern": c.get("pattern"),
-        "pattern_hits": c.get("pattern_hits"), "lex": c.get("lex"), "fb": None, "msg": chat_msg_id, "out": {}})
+        "pattern_hits": c.get("pattern_hits"), "lex": c.get("lex"), "mcap_b": c.get("mcap_b"), "fb": None, "msg": chat_msg_id, "out": {}})
     return eid
 
 
@@ -37,7 +37,7 @@ def record_mid(j, c, now):
     j["entries"].append({
         "id": eid, "t": now, "ticker": c["ticker"], "track": "mid", "price": c.get("price"),
         "live": c.get("market_live"), "move_24h": c.get("move_24h"), "rel_volume": c.get("rel_volume"),
-        "pace": c.get("pace_1h"), "authors": c.get("authors_1h"), "burst": c.get("burst"),
+        "mcap_b": c.get("mcap_b"), "pace": c.get("pace_1h"), "authors": c.get("authors_1h"), "burst": c.get("burst"),
         "fired_main": bool(c.get("fired")), "sources": ["Reddit"], "out": {}})
     return eid
 
