@@ -4,7 +4,7 @@ import json
 import os
 import time
 
-from . import config as C
+from . import research, config as C
 from . import bot, charts, dashboard, journal, llm, notify, plain, signals, sources
 from .tickers import extract
 from .xsource import XClient
@@ -100,7 +100,11 @@ def maybe_digest(state, now, send):
     items.sort(key=lambda v: (-v["hot"], -v["score"]))
     src = (state.get("health") or {}).get("src", {})
     problems = [k for k, (ok, bad) in src.items() if bad and not ok]
-    send(plain.fmt_digest(items, problems, C.PAGES_URL))
+    try:
+        state["slow_burn"] = research.slow_burn(state, now)
+    except Exception as ex:
+        print("slow burn error", repr(ex))
+    send(plain.fmt_digest(items, problems, C.PAGES_URL, slow=state.get("slow_burn")))
     state["digest"] = {}
     state["digest_day"] = day
 
@@ -196,6 +200,20 @@ def run(dry=False, verbose=False):
     for c in sorted(reddit.values(), key=lambda c: -c["score"])[:5]:
         pool.setdefault(c["ticker"], {"ticker": c["ticker"]})
 
+    # research rule "wave": stocks talked about alongside a meme that just spiked
+    followers = {}
+    try:
+        followers = research.wave_followers(items, research.wave_leaders(state, jr["entries"], now), now)
+        for t, _ in sorted(followers.items(), key=lambda kv: -kv[1][1])[:3]:
+            if t in reddit:
+                pool.setdefault(t, {"ticker": t})
+        research.roll_days(state, now)
+    except Exception as ex:  # keep scanning even if this part breaks
+        print("research error", repr(ex))
+        health(state, "errors", False)
+        state.setdefault("last_errors", []).append([now, "research", _where(ex)])
+        state["last_errors"] = state["last_errors"][-10:]
+
     for t in state.get("watch", []):
         pool.setdefault(t, {"ticker": t})["watch_user"] = True
     qual = signals.quality(items, now, C.LOOKBACK_MIN)
@@ -253,6 +271,9 @@ def run(dry=False, verbose=False):
             if r:
                 c.update({k: r[k] for k in ("mentions_1h", "pace_1h", "authors_1h", "burst", "baseline_h", "fast")})
                 c["reddit_fired"] = r["fired"]
+                if (not r["fired"] and t in followers and t not in C.MEGA
+                        and r["pace_1h"] >= C.MIN_MENTIONS_1H // 2 and r["burst"] >= C.BURST_MULT / 2):
+                    c["reddit_fired"] = c["wave_assist"] = True     # lower bar while a meme wave is on
                 c["reddit_new"] = r["baseline_h"] < C.MIN_BASELINE or r.get("history_h", 0) < C.MIN_HISTORY_HOURS
             if C.USE_STOCKTWITS:
                 st = sources.stocktwits_stream(t, now)
@@ -314,6 +335,7 @@ def run(dry=False, verbose=False):
                 c["trends"] = cached(state, "trends", t, 3, sources.google_trends)
                 health(state, "google_trends", c["trends"] is not None)
             signals.apply_flags(c, qual.get(t), t in earn, c.get("trends"))
+            research.apply(c, state, items, texts.get(t, []), now, followers)
             signals.pattern(c, state, journal.main_entries(jr["entries"]), now)
             all_texts = texts.get(t, []) + c.pop("_st_texts", [])
             c["lex"] = signals.lexicon(all_texts)
@@ -420,6 +442,7 @@ def run(dry=False, verbose=False):
         print("dashboard error", ex)
 
     signals.prune(state, now)
+    research.prune_authors(state, now)
     for kind, entries in (state.get("cache") or {}).items():   # drop cache older than 8 days
         state["cache"][kind] = {k: v for k, v in entries.items() if now - v[0] < 8 * 86400}
     state["last_run"] = now

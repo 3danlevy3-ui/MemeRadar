@@ -4,6 +4,8 @@ import time
 from . import config as C
 
 DAY = 86400
+RESEARCH_NAMES = {"wave": "רוכבת על גל", "hype_shift": "מעבר להייפ", "engagement": "מעורבות גבוהה",
+                  "newcomers": "קהל חדש", "slow_burn": "בעירה איטית"}
 
 
 def new_journal():
@@ -18,7 +20,8 @@ def record(j, c, now, chat_msg_id=None):
         "sources": c.get("sources") or [], "flags": c.get("flags") or [], "price": c.get("price"),
         "move_24h": c.get("move_24h"), "dtc": (c.get("si") or {}).get("dtc"),
         "trends": (c.get("trends") or {}).get("ratio"), "pattern": c.get("pattern"),
-        "pattern_hits": c.get("pattern_hits"), "lex": c.get("lex"), "mcap_b": c.get("mcap_b"), "fb": None, "msg": chat_msg_id, "out": {}})
+        "pattern_hits": c.get("pattern_hits"), "lex": c.get("lex"), "mcap_b": c.get("mcap_b"),
+        "research": c.get("research") or [], "wave": c.get("wave"), "fb": None, "msg": chat_msg_id, "out": {}})
     return eid
 
 
@@ -164,7 +167,8 @@ def breakdown(entries):
             keys.append("2+ מקורות")
         if e.get("fb") is not None:
             keys.append("👍 שלך" if e["fb"] > 0 else "👎 שלך")
-        keys += [f"סימון: {f}" for f in e.get("flags") or []]
+        keys += [f"סימון: {f.split(':')[0]}" for f in e.get("flags") or []]
+        keys += [f"🔬 {RESEARCH_NAMES.get(r, r)}" for r in e.get("research") or []]
         if e.get("channel"):
             keys.append({"push": "📲 התראה מיידית", "extreme": "🚨 פעילות חריגה"}.get(e["channel"], "📋 רשימה יומית"))
         if e.get("pattern") is not None:

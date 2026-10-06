@@ -28,7 +28,7 @@ def _get(url, params=None, tries=3, timeout=30):
 
 def fetch_items(kind, sub, after, before):
     """All comments/posts in [after, before) for one subreddit, oldest first."""
-    fields = "id,created_utc,author,body" if kind == "comments" else "id,created_utc,author,title,selftext"
+    fields = "id,created_utc,author,body,score" if kind == "comments" else "id,created_utc,author,title,selftext,score"
     out, cur = [], int(after)
     for _ in range(C.MAX_PAGES_PER_SUB):
         j = _get(f"{C.ARCTIC}/api/{kind}/search",

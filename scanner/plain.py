@@ -78,6 +78,11 @@ def reasons(c, llm=None):
             minus.append("נראה שחלק מההודעות משוכפלות או מאותו אדם, ייתכן שמנסים לנפח אותה")
         if "דוחות" in f:
             minus.append("החברה מפרסמת דוחות כספיים בימים אלה, אז טבעי שמדברים עליה")
+    for f in c.get("flags") or []:
+        if f[:1] in "🌊🔥👍👥🐢":
+            plus.append(f)
+    if c.get("wave_assist"):
+        why.append(f"השיח עליה עוד מתחת לסף הרגיל, אבל מספיק כי יש גל מם (${e(c.get('wave') or '')})")
     if llm and llm.get("summary_he"):
         why.append("על מה מדברים: " + e(llm["summary_he"]))
     elif c.get("st_summary"):
@@ -148,7 +153,18 @@ def digest_line(d):
             f"   {e(d.get('why') or '')}")
 
 
-def fmt_digest(items, problems=None, pages_url=""):
+def fmt_slow(slow):
+    if not slow:
+        return []
+    L = ["\n🐢 <b>בעירה איטית: השיח עולה שבוע אחרי שבוע</b>",
+         "<i>כמו GME ב-2020: לא פיצוץ, אלא עלייה עקבית. לא התראה, רק לשים עין.</i>"]
+    for x in slow[:6]:
+        steps = " → ".join(f"{v:g}%" for v in x["shares"])
+        L.append(f"• <b>${e(x['ticker'])}</b>: {steps} מהשיח ({x['mentions']} אזכורים בשבוע האחרון)")
+    return L
+
+
+def fmt_digest(items, problems=None, pages_url="", slow=None):
     L = ["📋 <b>מה מתחמם היום</b>",
          "<i>מניות שהתחילו לדבר עליהן, אבל עוד לא מספיק חזק או מספיק זמן בשביל התראה מיידית.</i>", ""]
     if items:
@@ -156,6 +172,7 @@ def fmt_digest(items, problems=None, pages_url=""):
         L.append("\n🔥 = עדיין חם בשעתיים האחרונות · ➖ = נרגע")
     else:
         L.append("היום שקט. אף מניה לא התחממה במיוחד.")
+    L += fmt_slow(slow)
     if problems:
         L.append("\n⚠️ <b>מקורות שלא עבדו היום:</b> " + ", ".join(e(p) for p in problems))
     if pages_url:

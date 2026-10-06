@@ -136,3 +136,26 @@ MID_RULES = [(0.10, 0.07, 2), (0.15, 0.08, 3), (0.20, 0.10, 3)]   # (target, sto
 
 # --- downtime notice (v7) ----------------------------------------------------------
 GAP_ALERT_MIN = _env("GAP_ALERT_MIN", 60, int)   # tell the phone when scans were missing for longer than this
+
+# --- research rules from the GME/AMC/BB deep dive (v8, site/meme_dna.html) -------------------
+WAVE_DAYS = _env("WAVE_DAYS", 5, int)            # a spike makes its stock a "wave leader" for this long
+WAVE_MIN_CO = _env("WAVE_MIN_CO", 2, int)        # co-mentions with the leader in the last hour ("next X" counts double)
+WAVE_BONUS = _env("WAVE_BONUS", 8, int)
+HYPE_MIN_TEXTS = _env("HYPE_MIN_TEXTS", 6, int)
+HYPE_MIN_OBS = _env("HYPE_MIN_OBS", 3, int)      # earlier sightings needed before comparing
+HYPE_MIN_SHARE = _env("HYPE_MIN_SHARE", 0.25, float)
+HYPE_SHIFT_MULT = _env("HYPE_SHIFT_MULT", 2.0, float)
+HYPE_BONUS = _env("HYPE_BONUS", 6, int)
+ENG_MIN_ITEMS = _env("ENG_MIN_ITEMS", 5, int)
+ENG_MULT = _env("ENG_MULT", 2.0, float)          # upvotes per post vs the forum's average post
+ENG_BONUS = _env("ENG_BONUS", 5, int)
+NEW_MIN_AUTHORS = _env("NEW_MIN_AUTHORS", 6, int)
+NEW_WARMUP_DAYS = _env("NEW_WARMUP_DAYS", 5, int)  # need this much memory of a stock's writers first
+NEW_SHARE = _env("NEW_SHARE", 0.7, float)
+NEW_CAP = _env("NEW_CAP", 200, int)              # remembered writers per stock (hashed)
+NEW_BONUS = _env("NEW_BONUS", 5, int)
+SLOW_WEEKS = _env("SLOW_WEEKS", 4, int)
+SLOW_STEP = _env("SLOW_STEP", 1.2, float)        # each week's share at least 20% above the week before
+SLOW_MIN_MENTIONS = _env("SLOW_MIN_MENTIONS", 20, int)
+SLOW_MIN_SHARE = _env("SLOW_MIN_SHARE", 0.002, float)
+SLOW_BONUS = _env("SLOW_BONUS", 5, int)

@@ -33,7 +33,8 @@ def ingest(state, items, universe):
             h["_c"] += 1
             for t in tks:
                 h["T"][t] = h["T"].get(t, 0) + 1
-        out.append({"id": iid, "t": ts, "a": it.get("author") or "", "tk": sorted(tks), "text": text[:600]})
+        out.append({"id": iid, "t": ts, "a": it.get("author") or "", "tk": sorted(tks), "text": text[:600],
+                    "s": it.get("score")})
     return out
 
 
