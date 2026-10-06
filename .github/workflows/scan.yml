@@ -2,7 +2,7 @@ name: MemeRadar scan
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # every 15 min, 24/7 (GitHub may delay runs by a few minutes)
+    - cron: "*/10 * * * *"   # every 10 min, 24/7 (GitHub may delay runs by a few minutes)
   workflow_dispatch:
     inputs:
       test_telegram:
