@@ -86,6 +86,11 @@ def _evaluate(e, bars, now):
         out["max3d"] = round(max(x[2] for x in w3) / entry - 1, 4)
         out["min3d"] = round(min(x[3] for x in w3) / entry - 1, 4)
     if e.get("track") == "mid":
+        tp, sl, days = C.MID_BOOK_RULE
+        e["pos"] = position(e["t"], after, entry, now, tp, sl, days, C.MID_COST)
+    else:
+        e["pos"] = position(e["t"], after, entry, now, C.TP_PCT, C.STOP_PCT, C.HOLD_DAYS, C.TRADE_COST)
+    if e.get("track") == "mid":
         _evaluate_mid(e, after, entry, now)
     elif now >= t0 + C.HOLD_DAYS * DAY and "sim" not in out and w3:
         res = None
@@ -101,6 +106,39 @@ def _evaluate(e, bars, now):
         out["sim"] = round(res - C.TRADE_COST, 4)
     if now >= t0 + 10 * DAY:
         out["done"] = True
+
+
+def position(t0, bars, entry, now, tp, sl, days, cost):
+    """Where a $-position opened at the alert stands now, under the experiment rules.
+    Exits at the stop or target the first hour either is touched (stop first if both: conservative;
+    a gap below the stop exits at the open), or at the last price when the holding time ends."""
+    until = t0 + days * DAY
+    p = {"entry": round(entry, 4), "tp": round(entry * (1 + tp), 4), "sl": round(entry * (1 - sl), 4),
+         "until": until, "cost": cost, "status": "open"}
+    last = None
+    for ts, o, h, l, c in bars:
+        if ts > now:
+            break
+        if ts >= until:
+            break
+        if l <= p["sl"]:
+            px = min(p["sl"], o) if o else p["sl"]
+            p.update(status="closed", exit=round(px, 4), exit_t=ts, reason="stop")
+            break
+        if h >= p["tp"]:
+            px = max(p["tp"], o) if o and o > p["tp"] and ts > t0 + 3600 else p["tp"]
+            p.update(status="closed", exit=round(px, 4), exit_t=ts, reason="target")
+            break
+        last = (ts, c)
+    if p["status"] == "open":
+        if last and now >= until:
+            p.update(status="closed", exit=round(last[1], 4), exit_t=last[0], reason="time")
+        elif last:
+            p.update(last=round(last[1], 4), last_t=last[0])
+    ref = p.get("exit") or p.get("last")
+    if ref:
+        p["ret"] = round(ref / entry - 1 - cost, 4)
+    return p
 
 
 def _simulate(bars, entry, tp, sl, cost):
@@ -129,8 +167,13 @@ def update_outcomes(j, now, bars_fn, limit=None):
     by_tk = {}
     for e in todo:
         by_tk.setdefault(e["ticker"], []).append(e)
+    def urgency(item):
+        es = item[1]
+        live = any((e.get("pos") or {}).get("status") != "closed" for e in es)
+        phone = any(e.get("channel") in ("push", "extreme") or e.get("msg") for e in es)
+        return (not live, not phone, -max(e["t"] for e in es))
     n = 0
-    for tk, es in by_tk.items():
+    for tk, es in sorted(by_tk.items(), key=urgency):
         if n >= limit:
             break
         oldest = min(e["t"] for e in es)

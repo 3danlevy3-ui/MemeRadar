@@ -159,3 +159,8 @@ SLOW_STEP = _env("SLOW_STEP", 1.2, float)        # each week's share at least 20
 SLOW_MIN_MENTIONS = _env("SLOW_MIN_MENTIONS", 20, int)
 SLOW_MIN_SHARE = _env("SLOW_MIN_SHARE", 0.002, float)
 SLOW_BONUS = _env("SLOW_BONUS", 5, int)
+
+# --- virtual portfolio on the dashboard (v9) -------------------------------------------
+BOOK_USD = _env("BOOK_USD", 1000.0, float)              # dollars put into every paper position
+BOOK_START = _env("BOOK_START", "2026-10-06T12:12:00Z")  # when today's rules (size filter etc.) went live
+MID_BOOK_RULE = (0.15, 0.08, 3)                          # the 10-20% track's portfolio rule (target, stop, days)
