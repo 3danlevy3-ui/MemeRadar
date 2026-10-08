@@ -164,3 +164,8 @@ SLOW_BONUS = _env("SLOW_BONUS", 5, int)
 BOOK_USD = _env("BOOK_USD", 1000.0, float)              # dollars put into every paper position
 BOOK_START = _env("BOOK_START", "2026-10-06T12:12:00Z")  # when today's rules (size filter etc.) went live
 MID_BOOK_RULE = (0.15, 0.08, 3)                          # the 10-20% track's portfolio rule (target, stop, days)
+
+# --- persistent single-source buzz (v10, after the WOLF miss) ---------------------------------
+PERSIST_SCANS = _env("PERSIST_SCANS", 3, int)            # scans in a row that saw the stock
+PERSIST_WINDOW_MIN = _env("PERSIST_WINDOW_MIN", 75, int)  # ... within this many minutes
+PERSIST_MIN_SCORE = _env("PERSIST_MIN_SCORE", 60, int)

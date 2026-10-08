@@ -327,11 +327,17 @@ def channel(c, state, now):
             ex["last"][t] = now
             return "extreme", "extreme"
     exceptional = c.get("score", 0) >= 90 and c.get("pattern") == 4
-    if c.get("market_live") is False and not exceptional:
+    # persistent buzz: one source is enough when the stock keeps showing up scan after scan
+    # (WOLF, 7 Oct 2026: Reddit only, score 64-66, six scans in a row, then +20% after hours)
+    streak = sum(1 for x in times if now - x <= C.PERSIST_WINDOW_MIN * 60)
+    persistent = streak >= C.PERSIST_SCANS and c.get("score", 0) >= C.PERSIST_MIN_SCORE
+    if persistent:
+        c["streak"] = streak
+    if c.get("market_live") is False and not (exceptional or persistent):
         return "digest", "market closed"
     strong = c.get("score", 0) >= C.PUSH_MIN_SCORE and (len(c.get("sources") or []) >= 2 or (c.get("pattern") or 0) >= 3)
     sustained = now - min(times) >= C.SUSTAIN_MIN * 60
-    if not (strong and (sustained or exceptional)):
+    if not ((strong and (sustained or exceptional)) or persistent):
         return "digest", "not strong/sustained yet"
     day = time.strftime("%Y%m%d", time.gmtime(now))
     pushes = state.setdefault("pushes", {})

@@ -39,6 +39,8 @@ def reasons(c, llm=None):
         new = (c.get("reddit_new") and "Reddit" in places) or (c.get("st_new") and "Stocktwits" in places)
         why.append("פתאום מדברים עליה: " + "; ".join(loud) + (" (עד עכשיו כמעט לא דיברו עליה)" if new else "")
                    if loud else "פתאום מדברים עליה הרבה יותר מבדרך כלל")
+    if c.get("streak"):
+        why.append(f"השיח לא נרגע: הסורק ראה אותה ב-{c['streak']} סריקות ברצף, כלומר זה לא רעש של רגע")
     if c.get("fast"):
         why.append("השיח מאיץ ממש עכשיו: ב-20 הדקות האחרונות הקצב גבוה מהממוצע של השעה")
     if (c.get("authors_1h") or 0) >= 5:
