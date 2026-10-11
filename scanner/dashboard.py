@@ -76,7 +76,7 @@ th{color:var(--muted);font-weight:500;font-size:12px}.tw{overflow-x:auto}.n{font
 <div class="card"><h2>🔬 מסלול הניסוי: תנועות של 10%-20%</h2>
 <div class="muted">מניות עם שיח מוגבר (פי 3 מהרגיל) שלא קיבלת עליהן הודעה. כל אחת נבדקת על הנייר עם שלושה כללים, אחרי עלות של <span id="midcost"></span>% לעסקה. מחפשים קבוצה שבה העסקה הממוצעת חיובית לאורך זמן.</div>
 <div class="tw" id="mid"></div></div>
-<div class="card"><h2>כל ההתראות</h2><div class="tw"><table id="alerts"></table></div></div>
+<div class="card"><h2>כל ההתראות</h2><div class="muted" style="margin:-4px 0 8px">חום: 🟢 מתחילה להתחמם · 🟠 חמה · 🔥 חמה מאוד</div><div class="tw"><table id="alerts"></table></div></div>
 <div class="card"><h2>מצב המקורות היום</h2><div id="health"></div></div>
 <p class="muted">תוצאות על נייר, לא ייעוץ השקעות. עם מעט התראות המספרים רועשים מאוד.</p>
 </div>
@@ -87,6 +87,7 @@ function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.set
 const pct=v=>v==null?"—":(v>0?"+":"")+v+"%",rate=v=>v==null?"—":v+"%";
 const ago=t=>{const m=Math.max(0,Math.round((Date.now()/1000-t)/60));return m<1?"עכשיו":m<60?`לפני ${m} דק׳`:m<48*60?`לפני ${Math.round(m/60)} שע׳`:`לפני ${Math.round(m/1440)} ימים`};
 const flames=sc=>sc>=70?"🔥🔥🔥":sc>=50?"🔥🔥":"🔥";
+const heat=sc=>sc>=70?"🔥":sc>=50?"🟠":"🟢";
 const money=v=>v==null?"—":(v<0?"−":v>0?"+":"")+"$"+Math.abs(v).toLocaleString("en-US",{maximumFractionDigits:0});
 (function(){const N=D.now||{},stale=Date.now()/1000-D.updated>45*60,bad=N.problems||[];
  const chips=[`<span class="chip">${stale?"⏸️ הסורק לא רץ":"🟢 הסורק פעיל"} · עודכן ${ago(D.updated)}</span>`,
@@ -161,7 +162,7 @@ const PB=((D.book||{}).phone||{}).summary||{},usd0=v=>v==null?"—":(v<0?"−":v
  t.innerHTML="<tr><th>מתי</th><th>מניה</th><th>חום</th><th>ציון</th><th>מקורות</th><th>מחיר</th><th>יום</th><th>3 ימים</th><th>שיא 3י</th><th>שפל 3י</th><th>ניסוי</th><th>שלך</th></tr>"+
  rows.map(e=>{const o=e.out,p=v=>v==null?'<span class="pill nt">…</span>':`<span class="pill ${v>=0?"up":"dn"}">${pct(+(v*100).toFixed(1))}</span>`;
   return `<tr><td>${new Date(e.t*1000).toLocaleString("he-IL",{timeZone:"Asia/Jerusalem",day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"})}</td>
-  <td class="tk">$${e.ticker}</td><td title="${e.tier==="EARLY"?"התחילה להתחמם":"כבר בתנועה"}">${flames(e.score||0)}</td><td class="n">${e.score??""}</td><td>${(e.sources||[]).join(" + ")}</td>
+  <td class="tk">$${e.ticker}</td><td title="ציון ${e.score??"—"}">${heat(e.score||0)}</td><td class="n">${e.score??""}</td><td>${(e.sources||[]).join(" + ")}</td>
   <td class="n">${e.price??""}</td><td>${p(o.r1d)}</td><td>${p(o.r3d)}</td><td>${p(o.max3d)}</td><td>${p(o.min3d)}</td><td>${p(o.sim)}</td>
   <td>${e.fb==null?"":e.fb>0?"👍":"👎"}</td></tr>`}).join("")})();
 $("midcost").textContent=D.mid_cost;
