@@ -70,12 +70,20 @@ def price_context(ticker):
         days = max(1, (t_last - 86400 - rows[0][0]) / 86400)
         vol_avg = sum(v for _, v in before) / days if before else 0
         meta = res.get("meta", {})
+        now = time.time()
+        per = meta.get("currentTradingPeriod") or {}
+        try:   # the exchange's own session times: weekends, holidays and early closes come for free
+            regular = per["regular"]["start"] <= now < per["regular"]["end"]
+            live = per["pre"]["start"] <= now < per["post"]["end"]
+        except (KeyError, TypeError):
+            regular = None
+            live = now - t_last < 2 * 3600
         return {"price": p_last, "move_24h": p_last / ref - 1 if ref else 0.0,
                 "rel_volume": vol24 / vol_avg if vol_avg else None,
                 "name": meta.get("longName") or meta.get("shortName") or ticker, "ok": True,
                 "etf": (meta.get("instrumentType") or "").upper() in ("ETF", "MUTUALFUND", "INDEX"),
                 "dollar_vol_m": round(vol_avg * p_last / 1e6, 1) if vol_avg else None,
-                "last_ts": t_last, "live": time.time() - t_last < 2 * 3600}
+                "last_ts": t_last, "live": live, "regular": regular}
     except (TypeError, KeyError, IndexError, ZeroDivisionError):
         return {"ok": False}
 
@@ -225,15 +233,46 @@ def options_activity(ticker, expiries=2):
 
 
 # ---------------------------------------------------------------- price bars (journal + charts)
-def price_bars(ticker, rng="1mo", interval="60m"):
+def _regular_sessions(meta):
+    """[(start, end)] of the regular sessions Yahoo reports for the bars' days (only days the exchange traded)."""
+    tp = (meta or {}).get("tradingPeriods")
+    if isinstance(tp, dict):
+        tp = tp.get("regular")
+    out = []
+    for day in tp or []:
+        for p in day if isinstance(day, list) else [day]:
+            if isinstance(p, dict) and "start" in p and "end" in p:
+                out.append((p["start"], p["end"]))
+    return out
+
+
+def in_regular_hours(ts):
+    """Fallback clock: Mon-Fri 9:30-16:00 New York time (knows daylight saving, not holidays)."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    d = datetime.fromtimestamp(ts, ZoneInfo("America/New_York"))
+    return d.weekday() < 5 and (9, 30) <= (d.hour, d.minute) < (16, 0)
+
+
+def regular_bars(ticker, rng="1mo"):
+    """Hourly bars from the regular session only: the prices a paper trade could really get."""
+    return price_bars(ticker, rng, regular_only=True)
+
+
+def price_bars(ticker, rng="1mo", interval="60m", regular_only=False):
     """[(ts, open, high, low, close)] incl. pre/post market, oldest first. [] on failure."""
     j = _get(f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
              {"range": rng, "interval": interval, "includePrePost": "true"})
     try:
         res = j["chart"]["result"][0]
         q = res["indicators"]["quote"][0]
-        return [(t, o, h, l, c) for t, o, h, l, c in zip(res["timestamp"], q["open"], q["high"], q["low"], q["close"])
+        bars = [(t, o, h, l, c) for t, o, h, l, c in zip(res["timestamp"], q["open"], q["high"], q["low"], q["close"])
                 if None not in (o, h, l, c)]
+        if regular_only:
+            ses = _regular_sessions(res.get("meta"))
+            ok = (lambda t: any(a <= t < b for a, b in ses)) if ses else in_regular_hours
+            bars = [b for b in bars if ok(b[0])]
+        return bars
     except (TypeError, KeyError, IndexError):
         return []
 
