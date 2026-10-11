@@ -21,8 +21,19 @@ def record(j, c, now, chat_msg_id=None):
         "move_24h": c.get("move_24h"), "dtc": (c.get("si") or {}).get("dtc"),
         "trends": (c.get("trends") or {}).get("ratio"), "pattern": c.get("pattern"),
         "pattern_hits": c.get("pattern_hits"), "lex": c.get("lex"), "mcap_b": c.get("mcap_b"),
-        "research": c.get("research") or [], "wave": c.get("wave"), "fb": None, "msg": chat_msg_id, "out": {}})
+        "research": c.get("research") or [], "wave": c.get("wave"), "live": c.get("market_live"),
+        "fb": None, "msg": chat_msg_id, "out": {}})
     return eid
+
+
+def is_live(e):
+    """Was the US market trading when the alert came? Uses the price feed's flag; for older entries
+    without it, falls back to the regular session clock (Mon-Fri 13:30-20:00 UTC)."""
+    if e.get("live") is not None:
+        return bool(e["live"])
+    tm = time.gmtime(e["t"])
+    mins = tm.tm_hour * 60 + tm.tm_min
+    return tm.tm_wday < 5 and 13 * 60 + 30 <= mins < 20 * 60
 
 
 def main_entries(entries):
@@ -59,12 +70,13 @@ def _evaluate(e, bars, now):
     after = [b for b in bars if b[0] >= t0 - 1800]
     if not after:
         return
-    if e.get("live") is False:   # market closed at alert time: the first real chance to buy is the next bar
+    if not is_live(e):   # market closed at alert time: the first real chance to buy is the next bar's open
         nxt = [b for b in bars if b[0] >= t0]
         if not nxt:
             return
         after = nxt
         entry = nxt[0][1]
+        t0 = e["entry_t"] = nxt[0][0]   # the holding clock starts when we could actually buy
     else:
         entry = e.get("price") or after[0][1]
     if not entry:
@@ -87,9 +99,9 @@ def _evaluate(e, bars, now):
         out["min3d"] = round(min(x[3] for x in w3) / entry - 1, 4)
     if e.get("track") == "mid":
         tp, sl, days = C.MID_BOOK_RULE
-        e["pos"] = position(e["t"], after, entry, now, tp, sl, days, C.MID_COST)
+        e["pos"] = position(t0, after, entry, now, tp, sl, days, C.MID_COST)
     else:
-        e["pos"] = position(e["t"], after, entry, now, C.TP_PCT, C.STOP_PCT, C.HOLD_DAYS, C.TRADE_COST)
+        e["pos"] = position(t0, after, entry, now, C.TP_PCT, C.STOP_PCT, C.HOLD_DAYS, C.TRADE_COST)
     if e.get("track") == "mid":
         _evaluate_mid(e, after, entry, now)
     elif now >= t0 + C.HOLD_DAYS * DAY and "sim" not in out and w3:
