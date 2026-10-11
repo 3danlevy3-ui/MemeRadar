@@ -5,6 +5,7 @@ import os
 import time
 
 from . import config as C
+from .journal import is_live
 
 BOOKS = {
     "phone": "התראות לטלפון",
@@ -42,22 +43,24 @@ def build(entries, now=None):
             if busy.get(t, 0) > e["t"]:
                 continue                       # already holding this stock: no second $1,000 into it
             pos = e.get("pos") or {}
-            entry = pos.get("entry") or e.get("price")
-            if not entry:
+            waiting = not pos and not is_live(e)   # alert came while the market was shut: buy at the next open
+            entry = None if waiting else pos.get("entry") or e.get("price")
+            if not entry and not waiting:
                 continue
-            status = pos.get("status") or "open"
+            status = "waiting" if waiting else pos.get("status") or "open"
             busy[t] = pos.get("exit_t") or (pos.get("until") or e["t"] + 3 * 86400) if status == "closed" else 10 ** 12
             ret = pos.get("ret")
             rows.append({
-                "ticker": t, "t": e["t"], "entry": entry, "tp": pos.get("tp"), "sl": pos.get("sl"),
-                "until": pos.get("until") or e["t"] + (C.MID_BOOK_RULE[2] if book == "mid" else C.HOLD_DAYS) * 86400,
+                "ticker": t, "t": e.get("entry_t") or e["t"], "alert_t": e["t"], "entry": entry, "tp": pos.get("tp"), "sl": pos.get("sl"),
+                "until": None if waiting else pos.get("until") or e["t"] + (C.MID_BOOK_RULE[2] if book == "mid" else C.HOLD_DAYS) * 86400,
                 "status": status, "reason": pos.get("reason"),
                 "now": pos.get("exit") or pos.get("last"), "now_t": pos.get("exit_t") or pos.get("last_t"),
                 "ret": ret, "pnl": round(C.BOOK_USD * ret, 2) if ret is not None else None,
                 "flags": [f.split(":")[0] for f in e.get("flags") or []][:3], "score": e.get("score"),
             })
         closed = [r for r in rows if r["status"] == "closed" and r["pnl"] is not None]
-        opened = [r for r in rows if r["status"] != "closed"]
+        opened = [r for r in rows if r["status"] == "open"]
+        waiting = [r for r in rows if r["status"] == "waiting"]
         realized = round(sum(r["pnl"] for r in closed), 2)
         unreal = round(sum(r["pnl"] or 0 for r in opened), 2)
         invested = len(rows) * C.BOOK_USD
@@ -70,7 +73,7 @@ def build(entries, now=None):
         out[book] = {
             "label": label, "positions": sorted(rows, key=lambda r: (r["status"] == "closed", -r["t"])),
             "curve": curve,
-            "summary": {"n": len(rows), "open": len(opened), "closed": len(closed), "invested": invested,
+            "summary": {"n": len(rows), "open": len(opened), "waiting": len(waiting), "closed": len(closed), "invested": invested,
                         "at_work": len(opened) * C.BOOK_USD, "realized": realized, "unrealized": unreal,
                         "total": round(realized + unreal, 2),
                         "total_pct": round((realized + unreal) / invested * 100, 1) if invested else None,
