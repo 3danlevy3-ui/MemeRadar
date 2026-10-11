@@ -101,10 +101,10 @@ const money=v=>v==null?"—":(v<0?"−":v>0?"+":"")+"$"+Math.abs(v).toLocaleStri
   <span class="why">${h.why} · נראתה ${h.n} פעמים, לאחרונה ${ago(h.last)}</span></div>`}).join(""):'<div class="empty">שקט כרגע. אף מניה לא מתחממת ב-6 השעות האחרונות.</div>';
  const P=((D.book||{}).phone||{}),S0=P.summary||{};
  const hp=$("heroPnl");hp.textContent=money(S0.total);hp.className="hero "+(S0.total>0?"pos":S0.total<0?"neg":"");
- $("heroSub").textContent=S0.n?`על $${S0.invested.toLocaleString()} שהושקעו (${S0.total_pct>0?"+":""}${S0.total_pct}%) · ${S0.open} פתוחות, ${S0.closed} נסגרו`:"עוד לא נכנסו לאף עסקה.";
+ $("heroSub").textContent=S0.n?`על $${S0.invested.toLocaleString()} שהושקעו (${S0.total_pct>0?"+":""}${S0.total_pct}%) · ${S0.open} פתוחות${S0.waiting?`, ${S0.waiting} ממתינות לפתיחת המסחר`:""}, ${S0.closed} נסגרו`:"עוד לא נכנסו לאף עסקה.";
  const op=(P.positions||[]).filter(p=>p.status!=="closed");
  const others=Object.entries(D.book||{}).filter(([k])=>k!=="phone").map(([k,b])=>`<div class="mrow"><span class="muted">${b.label}</span><span class="n ${b.summary.total>0?"pos":b.summary.total<0?"neg":""}">${money(b.summary.total)}</span></div>`).join("");
- $("heroOpen").innerHTML=op.map(p=>`<div class="mrow"><span><span class="tk">$${p.ticker}</span> <span class="muted">פתוחה, נגמרת ${new Date(p.until*1000).toLocaleDateString("he-IL",{timeZone:"Asia/Jerusalem",day:"numeric",month:"numeric"})}</span></span><span class="n ${p.pnl>0?"pos":p.pnl<0?"neg":""}">${money(p.pnl)}</span></div>`).join("")+others;
+ $("heroOpen").innerHTML=op.map(p=>p.status==="waiting"?`<div class="mrow"><span><span class="tk">$${p.ticker}</span> <span class="muted">⏳ ממתינה לפתיחת המסחר (תיקנה במחיר הפתיחה)</span></span><span class="n">—</span></div>`:`<div class="mrow"><span><span class="tk">$${p.ticker}</span> <span class="muted">פתוחה, נגמרת ${new Date(p.until*1000).toLocaleDateString("he-IL",{timeZone:"Asia/Jerusalem",day:"numeric",month:"numeric"})}</span></span><span class="n ${p.pnl>0?"pos":p.pnl<0?"neg":""}">${money(p.pnl)}</span></div>`).join("")+others;
  const L=N.last_push||[];
  $("lastPush").innerHTML=L.length?L.map(x=>`<div class="mrow"><span>${x.kind==="extreme"?"⚡":"📲"} <span class="tk">$${x.ticker}</span> <span class="muted">${ago(x.t)}</span></span><span class="n ${x.ret>0?"pos":x.ret<0?"neg":""}">${x.ret==null?"ממתין":(x.ret>0?"+":"")+(x.ret*100).toFixed(1)+"%"}</span></div>`).join(""):'<div class="empty" style="padding:8px 0">אין התראות ב-7 הימים האחרונים.</div>';
 })();
@@ -125,7 +125,7 @@ const PB=((D.book||{}).phone||{}).summary||{},usd0=v=>v==null?"—":(v<0?"−":v
   $("bookTabs").querySelectorAll("button").forEach(x=>x.onclick=()=>{cur=x.dataset.k;try{localStorage.setItem("mr_book",cur)}catch(e){}draw()});
   const T=$("bookTotal");T.textContent=usd(S.total);T.className="big "+cls(S.total);
   $("bookSub").textContent=S.n?`${S.n} השקעות של $${D.book_usd.toLocaleString()} (סה״כ $${S.invested.toLocaleString()}), כלומר ${S.total_pct>0?"+":""}${S.total_pct}% על הכסף שהושקע. כרגע בעבודה: $${S.at_work.toLocaleString()}.`:"עוד לא נכנסו לאף פוזיציה בתיק הזה. זה יקרה באות הבא שעומד בכללים.";
-  $("bookTiles").innerHTML=[[usd(S.realized),"רווח ממומש (נסגרו)",cls(S.realized)],[usd(S.unrealized),"רווח על הנייר (פתוחות)",cls(S.unrealized)],[S.open,"פתוחות עכשיו",""],[S.win==null?"—":S.win+"%","מהסגורות הרוויחו",""],[`${S.targets} / ${S.stops} / ${S.timeouts}`,"🎯 יעד / 🛑 סטופ / ⏱️ זמן",""]]
+  $("bookTiles").innerHTML=[[usd(S.realized),"רווח ממומש (נסגרו)",cls(S.realized)],[usd(S.unrealized),"רווח על הנייר (פתוחות)",cls(S.unrealized)],[S.waiting?`${S.open} + ${S.waiting} ⏳`:S.open,S.waiting?"פתוחות + ממתינות לפתיחה":"פתוחות עכשיו",""],[S.win==null?"—":S.win+"%","מהסגורות הרוויחו",""],[`${S.targets} / ${S.stops} / ${S.timeouts}`,"🎯 יעד / 🛑 סטופ / ⏱️ זמן",""]]
    .map(([v,l,c])=>`<div class="tile"><b class="${c}" style="direction:ltr">${v}</b><span>${l}</span></div>`).join("");
   const host=$("bookCurve");host.innerHTML="";
   const hist=((D.book_hist||{})[cur]||[]).map(p=>[p[0],p[1],p[2]]);
@@ -150,7 +150,7 @@ const PB=((D.book||{}).phone||{}).summary||{},usd0=v=>v==null?"—":(v<0?"−":v
    svg.addEventListener("mouseleave",()=>{dot.setAttribute("opacity",0);tip.textContent=""});}
   const op=b.positions.filter(p=>p.status!=="closed"),cl=b.positions.filter(p=>p.status==="closed");
   const rng=p=>{if(!p.now||!p.sl||!p.tp)return"";const f=Math.max(0,Math.min(1,(p.now-p.sl)/(p.tp-p.sl)));return `<div class="bar" title="סטופ ${p.sl} · יעד ${p.tp}"><i style="left:${(f*100).toFixed(0)}%"></i></div>`};
-  $("bookOpen").innerHTML=op.length?"<tr><th>מניה</th><th>נכנסנו</th><th>מחיר כניסה</th><th>עכשיו</th><th>רווח/הפסד</th><th>סטופ (שמאל) ← → יעד (ימין)</th><th>נגמר ב-</th></tr>"+op.map(p=>`<tr><td class="tk">$${p.ticker}</td><td>${dt(p.t)}</td><td class="n">${p.entry}</td><td class="n">${p.now??"ממתין"}</td><td class="n ${cls(p.pnl)}">${usd(p.pnl)}</td><td>${rng(p)}</td><td>${dt(p.until)}</td></tr>`).join(""):'<tr><td class="empty">אין פוזיציות פתוחות כרגע.</td></tr>';
+  $("bookOpen").innerHTML=op.length?"<tr><th>מניה</th><th>נכנסנו</th><th>מחיר כניסה</th><th>עכשיו</th><th>רווח/הפסד</th><th>סטופ (שמאל) ← → יעד (ימין)</th><th>נגמר ב-</th></tr>"+op.map(p=>p.status==="waiting"?`<tr><td class="tk">$${p.ticker}</td><td colspan="6" class="muted">⏳ ההתראה הגיעה כשהשוק סגור (${dt(p.alert_t)}). נקנה במחיר הפתיחה של יום המסחר הבא.</td></tr>`:`<tr><td class="tk">$${p.ticker}</td><td>${dt(p.t)}</td><td class="n">${p.entry}</td><td class="n">${p.now??"ממתין"}</td><td class="n ${cls(p.pnl)}">${usd(p.pnl)}</td><td>${rng(p)}</td><td>${dt(p.until)}</td></tr>`).join(""):'<tr><td class="empty">אין פוזיציות פתוחות כרגע.</td></tr>';
   $("bookClosed").innerHTML=cl.length?"<tr><th>מניה</th><th>נכנסנו</th><th>יצאנו</th><th>סיבה</th><th>כניסה</th><th>יציאה</th><th>רווח/הפסד</th></tr>"+cl.slice(0,60).map(p=>`<tr><td class="tk">$${p.ticker}</td><td>${dt(p.t)}</td><td>${dt(p.now_t)}</td><td>${R[p.reason]||""}</td><td class="n">${p.entry}</td><td class="n">${p.now}</td><td class="n ${cls(p.pnl)}">${usd(p.pnl)}</td></tr>`).join(""):'<tr><td class="empty">עוד אין פוזיציות שנסגרו.</td></tr>';
  }
  draw()})();
