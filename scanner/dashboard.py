@@ -46,11 +46,10 @@ th{color:var(--muted);font-weight:500;font-size:12px}.tw{overflow-x:auto}.n{font
 <div class="tabs" id="bookTabs" role="group" aria-label="איזה תיק להציג"></div>
 <div style="display:flex;gap:22px;flex-wrap:wrap;align-items:flex-end"><div><div class="muted">רווח/הפסד כולל</div><span class="big" id="bookTotal"></span></div><div class="muted" id="bookSub" style="max-width:520px"></div></div>
 <div class="tiles" id="bookTiles"></div>
-<div class="chart" id="bookCurve"></div>
+<h3>רווח/הפסד של התיק לאורך זמן (ממומש + על הנייר, בדולרים)</h3><div class="chart" id="bookCurve"></div>
 <h3>פוזיציות פתוחות</h3><div class="tw"><table id="bookOpen"></table></div>
 <h3>נסגרו</h3><div class="tw"><table id="bookClosed"></table></div>
 </div>
-<div class="card"><h2>רווח/הפסד על נייר לפי כללי הניסוי</h2><div class="muted" id="rules"></div><div class="chart" id="pnl"></div></div>
 <div class="card"><h2>מה עובד: +20% תוך 3 ימים לפי קבוצה</h2><div class="chart" id="groups"></div></div>
 <div class="card"><h2>🔬 מסלול הניסוי: תנועות של 10%-20%</h2>
 <div class="muted">מניות עם שיח מוגבר (פי 3 מהרגיל) שלא קיבלת עליהן הודעה. כל אחת נבדקת על הנייר עם שלושה כללים, אחרי עלות של <span id="midcost"></span>% לעסקה. מחפשים קבוצה שבה העסקה הממוצעת חיובית לאורך זמן.</div>
@@ -65,10 +64,10 @@ const $=id=>document.getElementById(id),NS="http://www.w3.org/2000/svg";
 function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e}
 const pct=v=>v==null?"—":(v>0?"+":"")+v+"%",rate=v=>v==null?"—":v+"%";
 $("upd").textContent="עודכן: "+new Date(D.updated*1000).toLocaleString("he-IL",{timeZone:"Asia/Jerusalem"});
-$("rules").textContent=`כניסה במחיר ההתראה, מימוש ב-+${D.rules.tp}%, סטופ ב-−${D.rules.sl}%, עד ${D.rules.days} ימים, עלות ${D.rules.cost}% לעסקה`;
 const S=D.all,W=D.week;
-[[S.n,"התראות מההתחלה"],[W.n,"התראות השבוע"],[pct(S.hit20),"הגיעו ל-+20% תוך 3 ימים"],[pct(S.dd15),"ירדו 15% תוך 3 ימים"],
- [S.sim_mean==null?"—":pct(S.sim_mean),"עסקת ניסוי ממוצעת"],[S.sim_total==null?"—":pct(S.sim_total),"סה״כ על נייר"]]
+const PB=((D.book||{}).phone||{}).summary||{},usd0=v=>v==null?"—":(v<0?"−":v>0?"+":"")+"$"+Math.abs(v).toLocaleString("en-US",{maximumFractionDigits:0});
+[[S.n,"אותות מההתחלה"],[W.n,"אותות השבוע"],[rate(S.hit20),"הגיעו ל-+20% תוך 3 ימים"],[rate(S.dd15),"ירדו 15% תוך 3 ימים"],
+ [usd0(PB.total),"תיק התראות לטלפון: רווח/הפסד"],[PB.total_pct==null?"—":pct(PB.total_pct),"תשואה על הכסף שהושקע"]]
  .forEach(([v,l])=>{const d=document.createElement("div");d.className="tile";d.innerHTML=`<b>${v}</b><span>${l}</span>`;$("tiles").appendChild(d)});
 
 (function(){const B=D.book||{},keys=Object.keys(B);if(!keys.length){$("book").hidden=true;return}
@@ -85,33 +84,33 @@ const S=D.all,W=D.week;
   $("bookSub").textContent=S.n?`${S.n} השקעות של $${D.book_usd.toLocaleString()} (סה״כ $${S.invested.toLocaleString()}), כלומר ${S.total_pct>0?"+":""}${S.total_pct}% על הכסף שהושקע. כרגע בעבודה: $${S.at_work.toLocaleString()}.`:"עוד לא נכנסו לאף פוזיציה בתיק הזה. זה יקרה באות הבא שעומד בכללים.";
   $("bookTiles").innerHTML=[[usd(S.realized),"רווח ממומש (נסגרו)",cls(S.realized)],[usd(S.unrealized),"רווח על הנייר (פתוחות)",cls(S.unrealized)],[S.open,"פתוחות עכשיו",""],[S.win==null?"—":S.win+"%","מהסגורות הרוויחו",""],[`${S.targets} / ${S.stops} / ${S.timeouts}`,"🎯 יעד / 🛑 סטופ / ⏱️ זמן",""]]
    .map(([v,l,c])=>`<div class="tile"><b class="${c}" style="direction:ltr">${v}</b><span>${l}</span></div>`).join("");
-  const host=$("bookCurve");host.innerHTML="";const c=b.curve;
-  if(c.length<2){host.innerHTML='<div class="empty">הגרף יופיע אחרי שתי פוזיציות שנסגרו.</div>'}else{
-   const W=Math.max(300,host.clientWidth||600),H=180,L=56,Rr=60,Tt=12,Bb=24,pts=[[c[0][0]-3600,0]].concat(c);
+  const host=$("bookCurve");host.innerHTML="";
+  const hist=((D.book_hist||{})[cur]||[]).map(p=>[p[0],p[1],p[2]]);
+  const pts=hist.length>=2?hist:[];
+  if(pts.length<2){host.innerHTML='<div class="empty">הגרף מתחיל להצטבר עכשיו: נקודה כל שעה, לפי השווי של התיק באותו רגע.</div>'}else{
+   const W=Math.max(300,host.clientWidth||600),H=200,L=58,Rr=64,Tt=12,Bb=28;
    const x0=pts[0][0],x1=pts[pts.length-1][0],ys=pts.map(p=>p[1]),y0=Math.min(0,...ys),y1=Math.max(0,...ys),pad=(y1-y0)*.12||50;
    const X=t=>L+(t-x0)/(x1-x0||1)*(W-L-Rr),Y=v=>Tt+(y1+pad-v)/(y1-y0+2*pad)*(H-Tt-Bb);
-   const svg=el("svg",{viewBox:`0 0 ${W} ${H}`,width:"100%"},host);
-   for(let i=0;i<=3;i++){const v=y0-pad+(y1-y0+2*pad)*i/3;el("line",{x1:L,x2:W-Rr,y1:Y(v),y2:Y(v),stroke:"var(--grid)"},svg);el("text",{x:L-6,y:Y(v)+4,"text-anchor":"end"},svg).textContent="$"+Math.round(v)}
+   const svg=el("svg",{viewBox:`0 0 ${W} ${H}`,width:"100%",role:"img","aria-label":"רווח והפסד של התיק לאורך זמן"},host);
+   for(let i=0;i<=3;i++){const v=y0-pad+(y1-y0+2*pad)*i/3;el("line",{x1:L,x2:W-Rr,y1:Y(v),y2:Y(v),stroke:"var(--grid)"},svg);el("text",{x:L-6,y:Y(v)+4,"text-anchor":"end"},svg).textContent=usd(Math.round(v))}
    el("line",{x1:L,x2:W-Rr,y1:Y(0),y2:Y(0),stroke:"var(--muted)"},svg);
-   el("path",{d:pts.map((p,i)=>(i?"H"+X(p[0])+"V":"M"+X(p[0])+",")+Y(p[1])).join(""),fill:"none",stroke:"var(--sig)","stroke-width":2},svg);
-   const l=pts[pts.length-1];el("circle",{cx:X(l[0]),cy:Y(l[1]),r:4,fill:"var(--sig)"},svg);el("text",{x:X(l[0])+6,y:Y(l[1])+4,style:"fill:var(--ink)"},svg).textContent=usd(l[1]);}
+   const area=pts.map((p,i)=>(i?"L":"M")+X(p[0])+","+Y(p[1])).join("")+`L${X(x1)},${Y(0)}L${X(x0)},${Y(0)}Z`;
+   el("path",{d:area,fill:"var(--sigs)",opacity:.6},svg);
+   el("path",{d:pts.map((p,i)=>(i?"L":"M")+X(p[0])+","+Y(p[1])).join(""),fill:"none",stroke:"var(--sig)","stroke-width":2},svg);
+   const l=pts[pts.length-1];el("circle",{cx:X(l[0]),cy:Y(l[1]),r:4,fill:"var(--sig)"},svg);el("text",{x:X(l[0])+6,y:Y(l[1])+4,style:"fill:var(--ink)"},svg).textContent=usd(l[1]);
+   const fmt=t=>new Date(t*1000).toLocaleString("he-IL",{timeZone:"Asia/Jerusalem",day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"});
+   const span=x1-x0,ticks=span>3*86400?4:3;
+   for(let i=0;i<ticks;i++){const t=x0+span*i/(ticks-1);el("text",{x:X(t),y:H-8,"text-anchor":i===0?"start":i===ticks-1?"end":"middle"},svg).textContent=span>2*86400?new Date(t*1000).toLocaleDateString("he-IL",{timeZone:"Asia/Jerusalem",day:"numeric",month:"numeric"}):fmt(t)}
+   const tip=el("text",{x:L,y:Tt+2,style:"fill:var(--ink)"},svg),dot=el("circle",{r:4,fill:"var(--ink)",opacity:0},svg);
+   svg.addEventListener("mousemove",ev=>{const r=svg.getBoundingClientRect(),xx=(ev.clientX-r.left)/r.width*W;let best=pts[0];for(const p of pts)if(Math.abs(X(p[0])-xx)<Math.abs(X(best[0])-xx))best=p;
+    dot.setAttribute("cx",X(best[0]));dot.setAttribute("cy",Y(best[1]));dot.setAttribute("opacity",1);tip.textContent=`${fmt(best[0])} · ${usd(best[1])} · הושקעו $${(best[2]||0).toLocaleString()}`});
+   svg.addEventListener("mouseleave",()=>{dot.setAttribute("opacity",0);tip.textContent=""});}
   const op=b.positions.filter(p=>p.status!=="closed"),cl=b.positions.filter(p=>p.status==="closed");
   const rng=p=>{if(!p.now||!p.sl||!p.tp)return"";const f=Math.max(0,Math.min(1,(p.now-p.sl)/(p.tp-p.sl)));return `<div class="bar" title="סטופ ${p.sl} · יעד ${p.tp}"><i style="left:${(f*100).toFixed(0)}%"></i></div>`};
   $("bookOpen").innerHTML=op.length?"<tr><th>מניה</th><th>נכנסנו</th><th>מחיר כניסה</th><th>עכשיו</th><th>רווח/הפסד</th><th>סטופ (שמאל) ← → יעד (ימין)</th><th>נגמר ב-</th></tr>"+op.map(p=>`<tr><td class="tk">$${p.ticker}</td><td>${dt(p.t)}</td><td class="n">${p.entry}</td><td class="n">${p.now??"ממתין"}</td><td class="n ${cls(p.pnl)}">${usd(p.pnl)}</td><td>${rng(p)}</td><td>${dt(p.until)}</td></tr>`).join(""):'<tr><td class="empty">אין פוזיציות פתוחות כרגע.</td></tr>';
   $("bookClosed").innerHTML=cl.length?"<tr><th>מניה</th><th>נכנסנו</th><th>יצאנו</th><th>סיבה</th><th>כניסה</th><th>יציאה</th><th>רווח/הפסד</th></tr>"+cl.slice(0,60).map(p=>`<tr><td class="tk">$${p.ticker}</td><td>${dt(p.t)}</td><td>${dt(p.now_t)}</td><td>${R[p.reason]||""}</td><td class="n">${p.entry}</td><td class="n">${p.now}</td><td class="n ${cls(p.pnl)}">${usd(p.pnl)}</td></tr>`).join(""):'<tr><td class="empty">עוד אין פוזיציות שנסגרו.</td></tr>';
  }
  draw()})();
-(function(){const pts=D.entries.filter(e=>e.out.sim!=null).sort((a,b)=>a.t-b.t);const host=$("pnl");
- if(pts.length<2){host.innerHTML='<div class="empty">עסקאות הניסוי נסגרות 3 ימים אחרי ההתראה. הגרף יופיע אחרי שתיים.</div>';return}
- let s=0;const c=pts.map(e=>[e.t,s+=e.out.sim*100]);const W=Math.max(300,host.clientWidth||600),H=220,L=44,R=58,T=14,B=26;
- const x0=c[0][0],x1=c[c.length-1][0]||x0+1,ys=c.map(p=>p[1]).concat([0]),y0=Math.min(...ys),y1=Math.max(...ys),pad=(y1-y0)*.1||5;
- const X=t=>L+(t-x0)/(x1-x0||1)*(W-L-R),Y=v=>T+(y1+pad-v)/(y1-y0+2*pad)*(H-T-B);
- const svg=el("svg",{viewBox:`0 0 ${W} ${H}`,width:"100%"},host);
- for(let i=0;i<=4;i++){const v=y0-pad+(y1-y0+2*pad)*i/4;el("line",{x1:L,x2:W-R,y1:Y(v),y2:Y(v),stroke:"var(--grid)"},svg);el("text",{x:L-6,y:Y(v)+4,"text-anchor":"end"},svg).textContent=v.toFixed(0)+"%"}
- el("line",{x1:L,x2:W-R,y1:Y(0),y2:Y(0),stroke:"var(--muted)"},svg);
- el("path",{d:c.map((p,i)=>(i?"L":"M")+X(p[0])+","+Y(p[1])).join(""),fill:"none",stroke:"var(--sig)","stroke-width":2},svg);
- const l=c[c.length-1];el("circle",{cx:X(l[0]),cy:Y(l[1]),r:4,fill:"var(--sig)"},svg);el("text",{x:X(l[0])+6,y:Y(l[1])+4,style:"fill:var(--ink)"},svg).textContent=pct(+l[1].toFixed(1));
- [x0,(x0+x1)/2,x1].forEach(t=>{const d=new Date(t*1000);el("text",{x:X(t),y:H-6,"text-anchor":"middle"},svg).textContent=d.getDate()+"."+(d.getMonth()+1)})})();
 (function(){const g=Object.entries(D.groups).filter(([k,v])=>v.evaluated>0);const host=$("groups");
  if(!g.length){host.innerHTML='<div class="empty">עוד אין התראות עם תוצאה.</div>';return}
  host.style.direction="rtl";host.innerHTML=g.map(([k,v])=>`<div class="gr"><span class="gl">${k}</span><span class="gb"><i style="width:${v.hit20||0}%"></i></span><span class="gv">${v.hit20??0}% · n=${v.evaluated}${v.sim_mean==null?"":" · ניסוי "+pct(v.sim_mean)}</span></div>`).join("")})();
@@ -144,10 +143,12 @@ def build(jr, state, now=None, path=None):
     path = path or C.DASHBOARD_PATH
     main_e = journal.main_entries(jr["entries"])
     week = [e for e in main_e if now - e["t"] < 7 * 86400]
+    books = portfolio.build(jr["entries"], now)
     data = {
         "updated": now, "all": journal.stats(main_e), "week": journal.stats(week),
         "groups": journal.breakdown(main_e), "entries": main_e[-300:],
-        "book": portfolio.build(jr["entries"], now), "book_usd": C.BOOK_USD, "book_start": C.BOOK_START,
+        "book": books, "book_hist": portfolio.record_history(books, now), "book_usd": C.BOOK_USD,
+        "book_start": C.BOOK_START,
         "mid": journal.mid_breakdown(journal.mid_entries(jr["entries"])), "mid_cost": round(C.MID_COST * 100, 1),
         "health": (state.get("health") or {}).get("src", {}),
         "rules": {"tp": round(C.TP_PCT * 100), "sl": round(C.STOP_PCT * 100), "days": C.HOLD_DAYS,

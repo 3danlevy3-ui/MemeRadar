@@ -142,10 +142,10 @@ def fmt_health(src, xstate, open_alerts):
 
 def _fmt_stats(st):
     if not st["evaluated"]:
-        return f"{st['n']} התראות, עוד אין מספיק זמן לתוצאות"
-    parts = [f"{st['n']} התראות", f"+20% תוך 3 ימים: {st['hit20']}%", f"−15%: {st['dd15']}%"]
+        return f"{st['n']} רישומים, עוד אין מספיק זמן לתוצאות"
+    parts = [f"{st['n']} רישומים", f"+20% תוך 3 ימים: {st['hit20']}%", f"−15%: {st['dd15']}%"]
     if st["sim_n"]:
-        parts.append(f"עסקת ניסוי ממוצעת: {st['sim_mean']:+.1f}% ({st['sim_win']}% רווחיות)")
+        parts.append(f"עסקה ממוצעת: {st['sim_mean']:+.1f}% ({st['sim_win']}% רווחיות)")
     return " · ".join(parts)
 
 
@@ -170,11 +170,30 @@ def fmt_mid(mid):
     return L
 
 
-def fmt_weekly(week_stats, all_stats, groups, top, pages_url="", mid=None):
-    L = ["📊 <b>MemeRadar: סיכום שבועי</b>", f"<b>השבוע:</b> {_fmt_stats(week_stats)}",
-         f"<b>מההתחלה:</b> {_fmt_stats(all_stats)}"]
-    if all_stats.get("sim_total") is not None:
-        L.append(f"אילו נכנסת לכל התראה לפי כללי הניסוי: סה\"כ {all_stats['sim_total']:+.1f}% (סכום אחוזים, לפני מס)")
+def _usd(v):
+    return "—" if v is None else f"{'+' if v > 0 else '−' if v < 0 else ''}${abs(v):,.0f}"
+
+
+def fmt_books(books):
+    """The virtual portfolios in dollars: the honest answer to 'how would I be doing?'."""
+    if not books:
+        return []
+    L = [f"💼 <b>התיק הווירטואלי</b> (${C.BOOK_USD:,.0f} לכל עסקה, לפי כללי הניסוי)"]
+    for b in books.values():
+        s = b["summary"]
+        if not s["n"]:
+            L.append(f"• {e(b['label'])}: עוד אין עסקאות")
+            continue
+        L.append(f"• <b>{e(b['label'])}</b>: {_usd(s['total'])} על ${s['invested']:,.0f} שהושקעו "
+                 f"({s['total_pct']:+.1f}%) · {s['closed']} נסגרו, {s['open']} פתוחות")
+    return L
+
+
+def fmt_weekly(week_stats, all_stats, groups, top, pages_url="", mid=None, books=None):
+    L = ["📊 <b>MemeRadar: סיכום שבועי</b>"]
+    L += fmt_books(books)
+    L += ["", "<b>איכות האותות</b> (כל פעם שמניה נרשמה, כולל חזרות):",
+          f"<b>השבוע:</b> {_fmt_stats(week_stats)}", f"<b>מההתחלה:</b> {_fmt_stats(all_stats)}"]
     good = [(k, v) for k, v in groups.items() if v["evaluated"] >= 3]
     if good:
         L.append("\n<b>מה עובד (לפחות 3 התראות עם תוצאה):</b>")

@@ -1,5 +1,7 @@
 """Virtual portfolio: $BOOK_USD into every signal, managed by the experiment rules (journal.position)."""
 import calendar
+import json
+import os
 import time
 
 from . import config as C
@@ -78,3 +80,34 @@ def build(entries, now=None):
                         "timeouts": sum(1 for r in closed if r["reason"] == "time")},
         }
     return out
+
+
+def history_path():
+    return os.path.join(os.path.dirname(C.JOURNAL_PATH) or ".", "book_history.json")
+
+
+def record_history(books, now=None, path=None):
+    """One point per book per hour: [time, total P&L $, invested $, open positions]. Kept 180 days.
+    This is what the dashboard chart draws, so the line shows the portfolio as it really stood each hour."""
+    now = now or int(time.time())
+    path = path or history_path()
+    try:
+        with open(path, encoding="utf-8") as f:
+            hist = json.load(f)
+    except (OSError, ValueError):
+        hist = {}
+    for book, b in books.items():
+        s = b["summary"]
+        pts = hist.setdefault(book, [])
+        if not pts and b["curve"]:
+            pts += [[t, v, None, None] for t, v in b["curve"][:-1]]   # seed with closes before history began
+        point = [now, s["total"], s["invested"], s["open"]]
+        if pts and now - pts[-1][0] < 50 * 60:
+            pts[-1] = point
+        else:
+            pts.append(point)
+        hist[book] = [p for p in pts if now - p[0] < 180 * 86400]
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(hist, f, separators=(",", ":"))
+    return hist

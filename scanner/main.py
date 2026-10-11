@@ -5,7 +5,7 @@ import os
 import time
 
 from . import research, config as C
-from . import bot, charts, dashboard, journal, llm, notify, plain, signals, sources
+from . import bot, charts, dashboard, journal, llm, notify, plain, portfolio, signals, sources
 from .tickers import extract
 from .xsource import XClient
 
@@ -144,7 +144,8 @@ def run(dry=False, verbose=False):
         groups = journal.breakdown(main_e)
         text = notify.fmt_weekly(journal.stats(wk), journal.stats(main_e), groups,
                                  sorted(wk, key=lambda e: -(e.get("score") or 0)), C.PAGES_URL,
-                                 mid=journal.mid_breakdown(journal.mid_entries(jr["entries"])))
+                                 mid=journal.mid_breakdown(journal.mid_entries(jr["entries"])),
+                                 books=portfolio.build(jr["entries"], now))
         png = charts.weekly_chart(main_e, groups) if C.USE_CHARTS else None
         send(text, photo=png, urgent=force)
         if not force:
