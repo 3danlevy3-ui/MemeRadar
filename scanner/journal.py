@@ -21,19 +21,26 @@ def record(j, c, now, chat_msg_id=None):
         "move_24h": c.get("move_24h"), "dtc": (c.get("si") or {}).get("dtc"),
         "trends": (c.get("trends") or {}).get("ratio"), "pattern": c.get("pattern"),
         "pattern_hits": c.get("pattern_hits"), "lex": c.get("lex"), "mcap_b": c.get("mcap_b"),
-        "research": c.get("research") or [], "wave": c.get("wave"), "live": c.get("market_live"),
+        "research": c.get("research") or [], "wave": c.get("wave"), "live": _regular(c),
         "fb": None, "msg": chat_msg_id, "out": {}})
     return eid
 
 
+def _regular(c):
+    """Could the paper trade buy right now? Only in the exchange's regular session (Yahoo's own
+    session times, so weekends, holidays and early closes count as closed). Pre/after-market = wait."""
+    if c.get("market_regular") is not None:
+        return bool(c["market_regular"])
+    return False if c.get("market_live") is False else None
+
+
 def is_live(e):
-    """Was the US market trading when the alert came? Uses the price feed's flag; for older entries
-    without it, falls back to the regular session clock (Mon-Fri 13:30-20:00 UTC)."""
+    """Was the regular session open when the alert came? Uses the stored flag; for older entries
+    without it, falls back to the New York clock (Mon-Fri 9:30-16:00, daylight saving aware)."""
     if e.get("live") is not None:
         return bool(e["live"])
-    tm = time.gmtime(e["t"])
-    mins = tm.tm_hour * 60 + tm.tm_min
-    return tm.tm_wday < 5 and 13 * 60 + 30 <= mins < 20 * 60
+    from .sources import in_regular_hours
+    return in_regular_hours(e["t"])
 
 
 def main_entries(entries):
@@ -50,7 +57,7 @@ def record_mid(j, c, now):
     eid = f"mid-{c['ticker']}-{now}"
     j["entries"].append({
         "id": eid, "t": now, "ticker": c["ticker"], "track": "mid", "price": c.get("price"),
-        "live": c.get("market_live"), "move_24h": c.get("move_24h"), "rel_volume": c.get("rel_volume"),
+        "live": _regular(c), "move_24h": c.get("move_24h"), "rel_volume": c.get("rel_volume"),
         "mcap_b": c.get("mcap_b"), "pace": c.get("pace_1h"), "authors": c.get("authors_1h"), "burst": c.get("burst"),
         "fired_main": bool(c.get("fired")), "sources": ["Reddit"], "out": {}})
     return eid
