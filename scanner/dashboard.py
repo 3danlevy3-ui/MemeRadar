@@ -38,9 +38,31 @@ th{color:var(--muted);font-weight:500;font-size:12px}.tw{overflow-x:auto}.n{font
 .big{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;direction:ltr;display:inline-block}
 .pos{color:var(--sig)}.neg{color:var(--bad)}h3{font-size:14.5px;margin:14px 0 6px}
 .bar{height:6px;background:var(--grid);border-radius:4px;position:relative;min-width:90px;direction:ltr}.bar i{position:absolute;top:-3px;width:3px;height:12px;border-radius:2px;background:var(--ink)}
+.now{display:grid;grid-template-columns:1.25fr 1fr;gap:14px;margin-top:14px}@media (max-width:760px){.now{grid-template-columns:1fr}}
+.now .card{margin-top:0;min-width:0}.status{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:3px 11px;font-size:13px;color:var(--ink2)}
+.hot{display:grid;gap:8px}.hrow{display:grid;grid-template-columns:auto 1fr auto;gap:2px 12px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
+.hrow.pushed{border-color:var(--warm);background:var(--warms)}.fl{font-size:18px;letter-spacing:-3px;grid-row:span 2;min-width:3.2em;text-align:center}
+.hrow .tk{font-size:16px}.hrow .why{color:var(--ink2);font-size:13px;grid-column:2/4}.hrow .chg{font:600 15px "IBM Plex Mono",monospace;direction:ltr}
+.badge{font-size:11.5px;border-radius:99px;padding:1px 8px;background:var(--warm);color:#fff;margin-inline-start:6px;vertical-align:2px}
+.hero{font-size:40px;font-weight:700;font-variant-numeric:tabular-nums;direction:ltr;display:inline-block;line-height:1.1}
+.mini{display:grid;gap:6px;margin-top:10px}.mrow{display:flex;justify-content:space-between;gap:10px;font-size:14px;border-top:1px solid var(--grid);padding-top:6px}
+.divider{margin:34px 0 4px;padding-top:16px;border-top:2px solid var(--line);font-size:20px}
 </style></head><body><div class="wrap">
-<h1>📡 MemeRadar</h1><div class="muted" id="upd"></div>
-<div class="tiles" id="tiles"></div>
+<h1>📡 MemeRadar</h1>
+<div class="status" id="status"></div>
+<div class="now">
+ <div class="card"><h2>🔥 מה חם עכשיו</h2><div class="muted" style="margin:-6px 0 10px">מניות שהסורק ראה ב-6 השעות האחרונות. יותר להבות = שיח חזק יותר.</div><div class="hot" id="hot"></div></div>
+ <div style="display:grid;gap:14px;align-content:start;min-width:0">
+  <div class="card"><h2>💼 התיק: התראות לטלפון</h2><div class="muted">$1,000 לכל התראה, לפי כללי הניסוי</div>
+   <div style="margin-top:8px"><span class="hero" id="heroPnl"></span></div><div class="muted" id="heroSub"></div>
+   <div class="mini" id="heroOpen"></div></div>
+  <div class="card"><h2>📲 התראות אחרונות</h2><div class="mini" id="lastPush" style="margin-top:0"></div></div>
+ </div>
+</div>
+<h2 class="divider">נתונים מלאים</h2>
+<div class="muted">כל המספרים, הטבלאות וההיסטוריה. לא צריך לקרוא את זה כל יום.</div>
+<div class="card"><h2>איכות האותות</h2><div class="muted">כל פעם שמניה נרשמה, כולל חזרות של אותה מניה</div><div class="tiles" id="tiles" style="margin-bottom:0"></div></div>
 <div class="card" id="book"><h2>📈 תיק וירטואלי</h2>
 <div class="muted" id="bookRules"></div>
 <div class="tabs" id="bookTabs" role="group" aria-label="איזה תיק להציג"></div>
@@ -63,11 +85,31 @@ const D=__DATA__;
 const $=id=>document.getElementById(id),NS="http://www.w3.org/2000/svg";
 function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e}
 const pct=v=>v==null?"—":(v>0?"+":"")+v+"%",rate=v=>v==null?"—":v+"%";
-$("upd").textContent="עודכן: "+new Date(D.updated*1000).toLocaleString("he-IL",{timeZone:"Asia/Jerusalem"});
+const ago=t=>{const m=Math.max(0,Math.round((Date.now()/1000-t)/60));return m<1?"עכשיו":m<60?`לפני ${m} דק׳`:m<48*60?`לפני ${Math.round(m/60)} שע׳`:`לפני ${Math.round(m/1440)} ימים`};
+const flames=sc=>sc>=70?"🔥🔥🔥":sc>=50?"🔥🔥":"🔥";
+const money=v=>v==null?"—":(v<0?"−":v>0?"+":"")+"$"+Math.abs(v).toLocaleString("en-US",{maximumFractionDigits:0});
+(function(){const N=D.now||{},stale=Date.now()/1000-D.updated>45*60,bad=N.problems||[];
+ const chips=[`<span class="chip">${stale?"⏸️ הסורק לא רץ":"🟢 הסורק פעיל"} · עודכן ${ago(D.updated)}</span>`,
+  bad.length?`<span class="chip">⚠️ לא עובד כרגע: ${bad.join(", ")}</span>`:`<span class="chip">✅ כל המקורות עובדים</span>`,
+  `<span class="chip">📲 ${N.pushes_24h||0} התראות לטלפון ב-24 שעות</span>`];
+ $("status").innerHTML=chips.join("");
+ const H=N.hot||[];
+ $("hot").innerHTML=H.length?H.map(h=>{const chg=h.chg==null?"":`<span class="chg ${h.chg>=0?"pos":"neg"}">${h.chg>0?"+":""}${h.chg}%</span>`;
+  return `<div class="hrow${h.pushed?" pushed":""}"><span class="fl" title="ציון ${h.score}">${flames(h.score)}</span>
+  <span><span class="tk">$${h.ticker}</span>${h.pushed?'<span class="badge">קיבלת התראה</span>':""}</span>${chg}
+  <span class="why">${h.why} · נראתה ${h.n} פעמים, לאחרונה ${ago(h.last)}</span></div>`}).join(""):'<div class="empty">שקט כרגע. אף מניה לא מתחממת ב-6 השעות האחרונות.</div>';
+ const P=((D.book||{}).phone||{}),S0=P.summary||{};
+ const hp=$("heroPnl");hp.textContent=money(S0.total);hp.className="hero "+(S0.total>0?"pos":S0.total<0?"neg":"");
+ $("heroSub").textContent=S0.n?`על $${S0.invested.toLocaleString()} שהושקעו (${S0.total_pct>0?"+":""}${S0.total_pct}%) · ${S0.open} פתוחות, ${S0.closed} נסגרו`:"עוד לא נכנסו לאף עסקה.";
+ const op=(P.positions||[]).filter(p=>p.status!=="closed");
+ const others=Object.entries(D.book||{}).filter(([k])=>k!=="phone").map(([k,b])=>`<div class="mrow"><span class="muted">${b.label}</span><span class="n ${b.summary.total>0?"pos":b.summary.total<0?"neg":""}">${money(b.summary.total)}</span></div>`).join("");
+ $("heroOpen").innerHTML=op.map(p=>`<div class="mrow"><span><span class="tk">$${p.ticker}</span> <span class="muted">פתוחה, נגמרת ${new Date(p.until*1000).toLocaleDateString("he-IL",{timeZone:"Asia/Jerusalem",day:"numeric",month:"numeric"})}</span></span><span class="n ${p.pnl>0?"pos":p.pnl<0?"neg":""}">${money(p.pnl)}</span></div>`).join("")+others;
+ const L=N.last_push||[];
+ $("lastPush").innerHTML=L.length?L.map(x=>`<div class="mrow"><span>${x.kind==="extreme"?"⚡":"📲"} <span class="tk">$${x.ticker}</span> <span class="muted">${ago(x.t)}</span></span><span class="n ${x.ret>0?"pos":x.ret<0?"neg":""}">${x.ret==null?"ממתין":(x.ret>0?"+":"")+(x.ret*100).toFixed(1)+"%"}</span></div>`).join(""):'<div class="empty" style="padding:8px 0">אין התראות ב-7 הימים האחרונים.</div>';
+})();
 const S=D.all,W=D.week;
 const PB=((D.book||{}).phone||{}).summary||{},usd0=v=>v==null?"—":(v<0?"−":v>0?"+":"")+"$"+Math.abs(v).toLocaleString("en-US",{maximumFractionDigits:0});
-[[S.n,"אותות מההתחלה"],[W.n,"אותות השבוע"],[rate(S.hit20),"הגיעו ל-+20% תוך 3 ימים"],[rate(S.dd15),"ירדו 15% תוך 3 ימים"],
- [usd0(PB.total),"תיק התראות לטלפון: רווח/הפסד"],[PB.total_pct==null?"—":pct(PB.total_pct),"תשואה על הכסף שהושקע"]]
+[[S.n,"רישומים מההתחלה"],[W.n,"רישומים השבוע"],[rate(S.hit20),"הגיעו ל-+20% תוך 3 ימים"],[rate(S.dd15),"ירדו 15% תוך 3 ימים"]]
  .forEach(([v,l])=>{const d=document.createElement("div");d.className="tile";d.innerHTML=`<b>${v}</b><span>${l}</span>`;$("tiles").appendChild(d)});
 
 (function(){const B=D.book||{},keys=Object.keys(B);if(!keys.length){$("book").hidden=true;return}
@@ -116,10 +158,10 @@ const PB=((D.book||{}).phone||{}).summary||{},usd0=v=>v==null?"—":(v<0?"−":v
  host.style.direction="rtl";host.innerHTML=g.map(([k,v])=>`<div class="gr"><span class="gl">${k}</span><span class="gb"><i style="width:${v.hit20||0}%"></i></span><span class="gv">${v.hit20??0}% · n=${v.evaluated}${v.sim_mean==null?"":" · ניסוי "+pct(v.sim_mean)}</span></div>`).join("")})();
 (function(){const t=$("alerts");const rows=D.entries.slice().sort((a,b)=>b.t-a.t);
  if(!rows.length){t.outerHTML='<div class="empty">עוד לא נשלחו התראות. זה תקין: הסורק מתריע רק כשמשהו חריג.</div>';return}
- t.innerHTML="<tr><th>מתי</th><th>מניה</th><th>רמה</th><th>ציון</th><th>מקורות</th><th>מחיר</th><th>יום</th><th>3 ימים</th><th>שיא 3י</th><th>שפל 3י</th><th>ניסוי</th><th>שלך</th></tr>"+
+ t.innerHTML="<tr><th>מתי</th><th>מניה</th><th>חום</th><th>ציון</th><th>מקורות</th><th>מחיר</th><th>יום</th><th>3 ימים</th><th>שיא 3י</th><th>שפל 3י</th><th>ניסוי</th><th>שלך</th></tr>"+
  rows.map(e=>{const o=e.out,p=v=>v==null?'<span class="pill nt">…</span>':`<span class="pill ${v>=0?"up":"dn"}">${pct(+(v*100).toFixed(1))}</span>`;
   return `<tr><td>${new Date(e.t*1000).toLocaleString("he-IL",{timeZone:"Asia/Jerusalem",day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"})}</td>
-  <td class="tk">$${e.ticker}</td><td>${e.tier==="EARLY"?"🟢":"🟠"}</td><td class="n">${e.score??""}</td><td>${(e.sources||[]).join(" + ")}</td>
+  <td class="tk">$${e.ticker}</td><td title="${e.tier==="EARLY"?"התחילה להתחמם":"כבר בתנועה"}">${flames(e.score||0)}</td><td class="n">${e.score??""}</td><td>${(e.sources||[]).join(" + ")}</td>
   <td class="n">${e.price??""}</td><td>${p(o.r1d)}</td><td>${p(o.r3d)}</td><td>${p(o.max3d)}</td><td>${p(o.min3d)}</td><td>${p(o.sim)}</td>
   <td>${e.fb==null?"":e.fb>0?"👍":"👎"}</td></tr>`}).join("")})();
 $("midcost").textContent=D.mid_cost;
@@ -138,6 +180,49 @@ $("midcost").textContent=D.mid_cost;
 """
 
 
+def now_view(entries, state, now):
+    """The 'right now' panel: what is hot in the last 6 hours, recent phone alerts, broken sources."""
+    main = [e for e in journal.main_entries(entries)]
+    hot = {}
+    for e in sorted(main, key=lambda x: x["t"]):
+        if now - e["t"] > 6 * 3600:
+            continue
+        t = e["ticker"]
+        h = hot.setdefault(t, {"ticker": t, "n": 0, "first": e["t"], "score": 0, "pushed": False, "src": set(),
+                               "flags": [], "p0": e.get("price")})
+        h["n"] += 1
+        h["last"] = e["t"]
+        h["score"] = max(h["score"], e.get("score") or 0)
+        h["pushed"] |= e.get("channel") in ("push", "extreme")
+        h["src"] |= set(e.get("sources") or [])
+        for f in e.get("flags") or []:
+            f = f.split(":")[0]
+            if f not in h["flags"]:
+                h["flags"].append(f)
+        h["p1"] = (e.get("pos") or {}).get("last") or e.get("price")
+    rows = []
+    for h in hot.values():
+        why = " + ".join(sorted(h.pop("src"))) or "שיח"
+        if h["flags"]:
+            why += " · " + " · ".join(h["flags"][:2])
+        p0, p1 = h.pop("p0"), h.pop("p1")
+        h["chg"] = round((p1 / p0 - 1) * 100, 1) if p0 and p1 and p1 != p0 else None
+        h["why"] = why
+        h.pop("flags")
+        rows.append(h)
+    rows.sort(key=lambda h: (not h["pushed"], -h["score"], -h["last"]))
+    start = portfolio._start()
+    pushes = [e for e in main if e.get("channel") in ("push", "extreme") and now - e["t"] < 7 * 86400 and e["t"] >= start]
+    last_push = [{"ticker": e["ticker"], "t": e["t"], "kind": e["channel"], "ret": (e.get("pos") or {}).get("ret")}
+                 for e in sorted(pushes, key=lambda x: -x["t"])[:6]]
+    src = (state.get("health") or {}).get("src", {})
+    names = {"reddit": "Reddit", "stocktwits": "Stocktwits", "yahoo": "מחירים", "finra": "שורט", "nasdaq": "Nasdaq",
+             "google_trends": "Google Trends", "x": "X"}
+    problems = [names.get(k, k) for k, (ok, bad) in src.items() if k != "errors" and bad and not ok]
+    return {"hot": rows[:8], "last_push": last_push, "problems": problems,
+            "pushes_24h": sum(1 for e in pushes if now - e["t"] < 86400)}
+
+
 def build(jr, state, now=None, path=None):
     now = now or int(time.time())
     path = path or C.DASHBOARD_PATH
@@ -147,7 +232,7 @@ def build(jr, state, now=None, path=None):
     data = {
         "updated": now, "all": journal.stats(main_e), "week": journal.stats(week),
         "groups": journal.breakdown(main_e), "entries": main_e[-300:],
-        "book": books, "book_hist": portfolio.record_history(books, now), "book_usd": C.BOOK_USD,
+        "now": now_view(jr["entries"], state, now), "book": books, "book_hist": portfolio.record_history(books, now), "book_usd": C.BOOK_USD,
         "book_start": C.BOOK_START,
         "mid": journal.mid_breakdown(journal.mid_entries(jr["entries"])), "mid_cost": round(C.MID_COST * 100, 1),
         "health": (state.get("health") or {}).get("src", {}),
