@@ -315,7 +315,8 @@ def run(dry=False, verbose=False):
             if px.get("ok"):
                 c.update(price=round(px["price"], 4), move_24h=round(px["move_24h"] * 100, 1),
                          rel_volume=round(px["rel_volume"], 1) if px.get("rel_volume") else None, name=px.get("name"),
-                         market_live=px.get("live"), etf=px.get("etf"), dollar_vol_m=px.get("dollar_vol_m"))
+                         market_live=px.get("live"), market_regular=px.get("regular"), etf=px.get("etf"),
+                         dollar_vol_m=px.get("dollar_vol_m"))
             sh = cached(state, "shares", t, 24 * 7, sources.shares_outstanding)
             if sh and c.get("price"):
                 c["mcap_b"] = round(sh * c["price"] / 1e9, 1)
@@ -406,7 +407,7 @@ def run(dry=False, verbose=False):
                     continue
                 journal.record_mid(jr, dict(r, price=round(px["price"], 4), move_24h=round(px["move_24h"] * 100, 1),
                                             rel_volume=round(px["rel_volume"], 1) if px.get("rel_volume") else None,
-                                            market_live=px.get("live")), now)
+                                            market_live=px.get("live"), market_regular=px.get("regular")), now)
     except Exception as ex:  # keep scanning even if this part breaks
         print("mid track error", repr(ex))
         health(state, "errors", False)
@@ -426,7 +427,7 @@ def run(dry=False, verbose=False):
 
     # ---------------- journal outcomes, weekly report, held messages, dashboard
     try:
-        journal.update_outcomes(jr, now, sources.price_bars)
+        journal.update_outcomes(jr, now, sources.regular_bars)
         weekly()
         if state.get("held") and state.get("quiet_until", 0) <= time.time():
             held = state.pop("held")
