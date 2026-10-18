@@ -140,7 +140,7 @@ GAP_ALERT_MIN = _env("GAP_ALERT_MIN", 60, int)   # tell the phone when scans wer
 # --- research rules from the GME/AMC/BB deep dive (v8, site/meme_dna.html) -------------------
 WAVE_DAYS = _env("WAVE_DAYS", 5, int)            # a spike makes its stock a "wave leader" for this long
 WAVE_MIN_CO = _env("WAVE_MIN_CO", 2, int)        # co-mentions with the leader in the last hour ("next X" counts double)
-WAVE_BONUS = _env("WAVE_BONUS", 8, int)
+WAVE_BONUS = _env("WAVE_BONUS", 0, int)          # 0 since 18 Oct 2026: 23 wave alerts, none reached +20% (flag kept for tracking)
 HYPE_MIN_TEXTS = _env("HYPE_MIN_TEXTS", 6, int)
 HYPE_MIN_OBS = _env("HYPE_MIN_OBS", 3, int)      # earlier sightings needed before comparing
 HYPE_MIN_SHARE = _env("HYPE_MIN_SHARE", 0.25, float)
@@ -169,3 +169,10 @@ MID_BOOK_RULE = (0.15, 0.08, 3)                          # the 10-20% track's po
 PERSIST_SCANS = _env("PERSIST_SCANS", 3, int)            # scans in a row that saw the stock
 PERSIST_WINDOW_MIN = _env("PERSIST_WINDOW_MIN", 75, int)  # ... within this many minutes
 PERSIST_MIN_SCORE = _env("PERSIST_MIN_SCORE", 60, int)
+
+# ---- 18 Oct 2026 review: narrow the phone alerts, and measure against luck
+PUSH_QUALITY = _env("PUSH_QUALITY", 1, int)        # phone push needs 2+ sources, a 3/4+ pattern, or buzz "from zero"
+PUSH_SKIP_MOMENTUM = _env("PUSH_SKIP_MOMENTUM", 1, int)  # no push when the price already ran (MOMENTUM tier avg -9.5%)
+CONTROL_PER_DAY = _env("CONTROL_PER_DAY", 10, int)  # random small caps logged each trading day as a control group
+CONTROL_MAX_TRIES = _env("CONTROL_MAX_TRIES", 30, int)
+DECISION_DATE = _env("DECISION_DATE", "2026-11-30")
