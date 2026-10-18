@@ -11,6 +11,7 @@ BOOKS = {
     "phone": "התראות לטלפון",
     "all": "כל האותות (כולל הרשימה היומית)",
     "mid": "מסלול 10%–20%",
+    "control": "קבוצת ביקורת (מניות אקראיות)",
 }
 
 
@@ -22,9 +23,9 @@ def _start():
 
 
 def _member(e, book):
-    if book == "mid":
-        return e.get("track") == "mid"
-    if e.get("track") == "mid":
+    if book in ("mid", "control"):
+        return e.get("track") == book
+    if e.get("track"):
         return False
     if book == "phone":
         return e.get("channel") in ("push", "extreme")
