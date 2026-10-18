@@ -44,8 +44,22 @@ def is_live(e):
 
 
 def main_entries(entries):
-    """Alerts that were (or could have been) sent to the phone. The paper-only mid track is kept apart."""
-    return [e for e in entries if e.get("track") != "mid"]
+    """Alerts that were (or could have been) sent to the phone. The paper-only mid track and the control group are kept apart."""
+    return [e for e in entries if not e.get("track")]
+
+
+def control_entries(entries):
+    return [e for e in entries if e.get("track") == "control"]
+
+
+def record_control(j, c, now):
+    """A random small cap logged with no signal at all: the 'luck' baseline every other number is compared with."""
+    eid = f"ctl-{c['ticker']}-{now}"
+    j["entries"].append({
+        "id": eid, "t": now, "ticker": c["ticker"], "track": "control", "price": c.get("price"),
+        "live": _regular(c), "move_24h": c.get("move_24h"), "rel_volume": c.get("rel_volume"),
+        "sources": [], "flags": [], "out": {}})
+    return eid
 
 
 def mid_entries(entries):
