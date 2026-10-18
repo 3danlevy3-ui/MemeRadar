@@ -339,6 +339,10 @@ def channel(c, state, now):
     sustained = now - min(times) >= C.SUSTAIN_MIN * 60
     if not ((strong and (sustained or exceptional)) or persistent):
         return "digest", "not strong/sustained yet"
+    if C.PUSH_SKIP_MOMENTUM and c.get("tier") == "MOMENTUM":
+        return "digest", "already moved"
+    if C.PUSH_QUALITY and not push_quality(c):
+        return "digest", "quality gate"
     day = time.strftime("%Y%m%d", time.gmtime(now))
     pushes = state.setdefault("pushes", {})
     if pushes.get("day") != day:
@@ -351,6 +355,13 @@ def channel(c, state, now):
         return "digest", "daily cap"
     pushes["n"] += 1
     return "push", "ok"
+
+
+def push_quality(c):
+    """The groups that did best in the first two weeks of data (small samples, re-check at the decision date):
+    more than one source, a 3/4+ pattern match, or buzz that came from almost nothing."""
+    return (len(c.get("sources") or []) >= 2 or (c.get("pattern") or 0) >= 3
+            or any(f.startswith("🆕") for f in c.get("flags") or []))
 
 
 def too_big(c):
