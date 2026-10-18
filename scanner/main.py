@@ -4,7 +4,7 @@ import json
 import os
 import time
 
-from . import research, config as C
+from . import control, research, config as C
 from . import bot, charts, dashboard, journal, llm, notify, plain, portfolio, signals, sources
 from .tickers import extract
 from .xsource import XClient
@@ -424,6 +424,11 @@ def run(dry=False, verbose=False):
         health(state, "errors", False)
         state.setdefault("last_errors", []).append([now, "exits/digest", repr(ex)[:200]])
         state["last_errors"] = state["last_errors"][-10:]
+
+    try:
+        control.daily(jr, state, uni, sources.price_context, now)
+    except Exception as ex:  # keep scanning even if this part breaks
+        print("control group error", repr(ex))
 
     # ---------------- journal outcomes, weekly report, held messages, dashboard
     try:
