@@ -60,6 +60,9 @@ th{color:var(--muted);font-weight:500;font-size:12px}.tw{overflow-x:auto}.n{font
   <div class="card"><h2>📲 התראות אחרונות</h2><div class="mini" id="lastPush" style="margin-top:0"></div></div>
  </div>
 </div>
+<div class="card" id="test"><h2>🧪 המבחן: האם הסורק עדיף על מזל?</h2>
+<div class="muted" id="testIntro"></div><div class="tw" style="margin-top:8px"><table id="testTable"></table></div>
+<div class="muted" id="testNote" style="margin-top:8px"></div></div>
 <h2 class="divider">נתונים מלאים</h2>
 <div class="muted">כל המספרים, הטבלאות וההיסטוריה. לא צריך לקרוא את זה כל יום.</div>
 <div class="card"><h2>איכות האותות</h2><div class="muted">כל פעם שמניה נרשמה, כולל חזרות של אותה מניה</div><div class="tiles" id="tiles" style="margin-bottom:0"></div></div>
@@ -166,6 +169,15 @@ const PB=((D.book||{}).phone||{}).summary||{},usd0=v=>v==null?"—":(v<0?"−":v
   <td class="n">${e.price??""}</td><td>${p(o.r1d)}</td><td>${p(o.r3d)}</td><td>${p(o.max3d)}</td><td>${p(o.min3d)}</td><td>${p(o.sim)}</td>
   <td>${e.fb==null?"":e.fb>0?"👍":"👎"}</td></tr>`}).join("")})();
 $("midcost").textContent=D.mid_cost;
+(function(){const T=D.test;if(!T){$("test").hidden=true;return}
+ const dd=new Date(T.decision+"T00:00:00Z").toLocaleDateString("he-IL",{day:"numeric",month:"numeric",year:"numeric"});
+ $("testIntro").textContent=`כל יום מסחר נרשמות ${T.per_day} מניות קטנות אקראיות, בלי שום סיגנל, ונבדקות באותם כללים בדיוק. אם ההתראות לא טובות מהן בבירור, הסורק לא מוצא משהו אמיתי. נקודת ההחלטה: ${dd}.`;
+ const rows=[["📲 התראות לטלפון",T.phone,(D.book.phone||{}).summary],["📋 כל האותות",T.all,(D.book.all||{}).summary],["🎲 קבוצת ביקורת",T.control,(D.book.control||{}).summary]];
+ const per=S=>S&&S.n?Math.round(S.total/S.n):null;const r=v=>v==null?"—":v+"%";
+ $("testTable").innerHTML="<tr><th>קבוצה</th><th>נבדקו</th><th>הגיעו ל-+20% תוך 3 ימים</th><th>ירדו 15% תוך 3 ימים</th><th>עסקה ממוצעת</th><th>תיק: $ לכל $1,000</th></tr>"+
+  rows.map(([l,s,b])=>`<tr><td>${l}</td><td class="n">${s.evaluated}</td><td class="n">${r(s.hit20)}</td><td class="n">${r(s.dd15)}</td><td class="n ${s.sim_mean>0?"pos":s.sim_mean<0?"neg":""}">${s.sim_mean==null?"—":(s.sim_mean>0?"+":"")+s.sim_mean+"%"}</td><td class="n ${per(b)>0?"pos":per(b)<0?"neg":""}">${per(b)==null?"—":money(per(b))}</td></tr>`).join("");
+ $("testNote").textContent=T.control.evaluated<30?`קבוצת הביקורת רק התחילה (${T.control.evaluated} עם תוצאה). צריך לפחות 30 כדי להשוות.`:"השוואה הוגנת: אותה תקופה, אותם כללי כניסה ויציאה.";
+})();
 (function(){const host=$("mid"),M=D.mid||{},ks=Object.keys(M);
  if(!ks.length||!M[ks[0]].n){host.innerHTML='<div class="empty">עוד לא נרשמו מניות במסלול.</div>';return}
  const rk=Object.keys(M[ks[0]].rules);
@@ -236,6 +248,9 @@ def build(jr, state, now=None, path=None):
         "now": now_view(jr["entries"], state, now), "book": books, "book_hist": portfolio.record_history(books, now), "book_usd": C.BOOK_USD,
         "book_start": C.BOOK_START,
         "mid": journal.mid_breakdown(journal.mid_entries(jr["entries"])), "mid_cost": round(C.MID_COST * 100, 1),
+        "test": {"phone": journal.stats([e for e in main_e if e.get("channel") in ("push", "extreme")]),
+                 "all": journal.stats(main_e), "control": journal.stats(journal.control_entries(jr["entries"])),
+                 "decision": C.DECISION_DATE, "per_day": C.CONTROL_PER_DAY},
         "health": (state.get("health") or {}).get("src", {}),
         "rules": {"tp": round(C.TP_PCT * 100), "sl": round(C.STOP_PCT * 100), "days": C.HOLD_DAYS,
                   "cost": round(C.TRADE_COST * 100, 2)},
