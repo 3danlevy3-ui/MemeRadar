@@ -124,6 +124,12 @@ def _evaluate(e, bars, now):
     else:
         e["pos"] = position(t0, after, entry, now, C.TP_PCT, C.STOP_PCT, C.HOLD_DAYS, C.TRADE_COST)
     if e.get("track") == "mid":
+        tp, sl, days = C.MID_BOOK_RULE
+        e["short"] = short_position(t0, after, entry, now, tp, sl, days, C.MID_COST + C.SHORT_EXTRA_COST)
+    else:
+        e["short"] = short_position(t0, after, entry, now, C.TP_PCT, C.STOP_PCT, C.HOLD_DAYS,
+                                    C.TRADE_COST + C.SHORT_EXTRA_COST)
+    if e.get("track") == "mid":
         _evaluate_mid(e, after, entry, now)
     elif now >= t0 + C.HOLD_DAYS * DAY and "sim" not in out and w3:
         res = None
@@ -174,6 +180,37 @@ def position(t0, bars, entry, now, tp, sl, days, cost):
     return p
 
 
+def short_position(t0, bars, entry, now, tp, sl, days, cost):
+    """The mirror image of position(): a paper short at the same moment and price, with the same rules turned
+    around. Profit when the price falls by tp, stop when it rises by sl, out after `days`. A gap up through
+    the stop exits at the open (a short can lose more than the stop). Added 19 Oct 2026."""
+    until = t0 + days * DAY
+    p = {"entry": round(entry, 4), "tp": round(entry * (1 - tp), 4), "sl": round(entry * (1 + sl), 4),
+         "until": until, "cost": cost, "status": "open", "side": "short"}
+    last = None
+    for ts, o, h, l, c in bars:
+        if ts > now or ts >= until:
+            break
+        if h >= p["sl"]:
+            px = max(p["sl"], o) if o else p["sl"]
+            p.update(status="closed", exit=round(px, 4), exit_t=ts, reason="stop")
+            break
+        if l <= p["tp"]:
+            px = min(p["tp"], o) if o and o < p["tp"] and ts > t0 + 3600 else p["tp"]
+            p.update(status="closed", exit=round(px, 4), exit_t=ts, reason="target")
+            break
+        last = (ts, c)
+    if p["status"] == "open":
+        if last and now >= until:
+            p.update(status="closed", exit=round(last[1], 4), exit_t=last[0], reason="time")
+        elif last:
+            p.update(last=round(last[1], 4), last_t=last[0])
+    ref = p.get("exit") or p.get("last")
+    if ref:
+        p["ret"] = round(1 - ref / entry - cost, 4)
+    return p
+
+
 def _simulate(bars, entry, tp, sl, cost):
     for _, _, h, l, _ in bars:          # stop first if both in one bar (conservative)
         if l <= entry * (1 - sl):
@@ -196,7 +233,8 @@ def _evaluate_mid(e, after, entry, now):
 def update_outcomes(j, now, bars_fn, limit=None):
     """Refresh outcomes for alerts that still need data. One price download per ticker."""
     limit = limit or C.MAX_OUTCOME_FETCH
-    todo = [e for e in j["entries"] if not e["out"].get("done") and now - e["t"] >= 3600]
+    todo = [e for e in j["entries"] if now - e["t"] >= 3600 and
+            (not e["out"].get("done") or (e.get("pos") and "short" not in e))]   # one-time short backfill
     by_tk = {}
     for e in todo:
         by_tk.setdefault(e["ticker"], []).append(e)
