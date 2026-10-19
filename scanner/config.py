@@ -176,3 +176,4 @@ PUSH_SKIP_MOMENTUM = _env("PUSH_SKIP_MOMENTUM", 1, int)  # no push when the pric
 CONTROL_PER_DAY = _env("CONTROL_PER_DAY", 10, int)  # random small caps logged each trading day as a control group
 CONTROL_MAX_TRIES = _env("CONTROL_MAX_TRIES", 30, int)
 DECISION_DATE = _env("DECISION_DATE", "2026-11-30")
+SHORT_EXTRA_COST = _env("SHORT_EXTRA_COST", 0.01, float)   # paper shorts: borrow fee + harder fills, per trade (19 Oct 2026)
