@@ -12,6 +12,10 @@ BOOKS = {
     "all": "כל האותות (כולל הרשימה היומית)",
     "mid": "מסלול 10%–20%",
     "control": "קבוצת ביקורת (מניות אקראיות)",
+    "short_phone": "📉 שורט: התראות לטלפון",
+    "short_all": "📉 שורט: כל האותות",
+    "short_mid": "📉 שורט: מסלול 10%–20%",
+    "short_control": "📉 שורט: קבוצת ביקורת",
 }
 
 
@@ -23,6 +27,7 @@ def _start():
 
 
 def _member(e, book):
+    book = book.replace("short_", "")
     if book in ("mid", "control"):
         return e.get("track") == book
     if e.get("track"):
@@ -43,7 +48,7 @@ def build(entries, now=None):
             t = e["ticker"]
             if busy.get(t, 0) > e["t"]:
                 continue                       # already holding this stock: no second $1,000 into it
-            pos = e.get("pos") or {}
+            pos = e.get("short" if book.startswith("short_") else "pos") or {}
             waiting = not pos and not is_live(e)   # alert came while the market was shut: buy at the next open
             entry = None if waiting else pos.get("entry") or e.get("price")
             if not entry and not waiting:
@@ -53,7 +58,7 @@ def build(entries, now=None):
             ret = pos.get("ret")
             rows.append({
                 "ticker": t, "t": e.get("entry_t") or e["t"], "alert_t": e["t"], "entry": entry, "tp": pos.get("tp"), "sl": pos.get("sl"),
-                "until": None if waiting else pos.get("until") or e["t"] + (C.MID_BOOK_RULE[2] if book == "mid" else C.HOLD_DAYS) * 86400,
+                "until": None if waiting else pos.get("until") or e["t"] + (C.MID_BOOK_RULE[2] if book.endswith("mid") else C.HOLD_DAYS) * 86400,
                 "status": status, "reason": pos.get("reason"),
                 "now": pos.get("exit") or pos.get("last"), "now_t": pos.get("exit_t") or pos.get("last_t"),
                 "ret": ret, "pnl": round(C.BOOK_USD * ret, 2) if ret is not None else None,
