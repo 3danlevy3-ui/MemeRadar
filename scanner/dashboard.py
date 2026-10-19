@@ -106,7 +106,7 @@ const money=v=>v==null?"—":(v<0?"−":v>0?"+":"")+"$"+Math.abs(v).toLocaleStri
  const hp=$("heroPnl");hp.textContent=money(S0.total);hp.className="hero "+(S0.total>0?"pos":S0.total<0?"neg":"");
  $("heroSub").textContent=S0.n?`על $${S0.invested.toLocaleString()} שהושקעו (${S0.total_pct>0?"+":""}${S0.total_pct}%) · ${S0.open} פתוחות${S0.waiting?`, ${S0.waiting} ממתינות לפתיחת המסחר`:""}, ${S0.closed} נסגרו`:"עוד לא נכנסו לאף עסקה.";
  const op=(P.positions||[]).filter(p=>p.status!=="closed");
- const others=Object.entries(D.book||{}).filter(([k])=>k!=="phone").map(([k,b])=>`<div class="mrow"><span class="muted">${b.label}</span><span class="n ${b.summary.total>0?"pos":b.summary.total<0?"neg":""}">${money(b.summary.total)}</span></div>`).join("");
+ const others=Object.entries(D.book||{}).filter(([k])=>["all","mid","control","short_all","short_control"].includes(k)).map(([k,b])=>`<div class="mrow"><span class="muted">${b.label}</span><span class="n ${b.summary.total>0?"pos":b.summary.total<0?"neg":""}">${money(b.summary.total)}</span></div>`).join("");
  $("heroOpen").innerHTML=op.map(p=>p.status==="waiting"?`<div class="mrow"><span><span class="tk">$${p.ticker}</span> <span class="muted">⏳ ממתינה לפתיחת המסחר (תיקנה במחיר הפתיחה)</span></span><span class="n">—</span></div>`:`<div class="mrow"><span><span class="tk">$${p.ticker}</span> <span class="muted">פתוחה, נגמרת ${new Date(p.until*1000).toLocaleDateString("he-IL",{timeZone:"Asia/Jerusalem",day:"numeric",month:"numeric"})}</span></span><span class="n ${p.pnl>0?"pos":p.pnl<0?"neg":""}">${money(p.pnl)}</span></div>`).join("")+others;
  const L=N.last_push||[];
  $("lastPush").innerHTML=L.length?L.map(x=>`<div class="mrow"><span>${x.kind==="extreme"?"⚡":"📲"} <span class="tk">$${x.ticker}</span> <span class="muted">${ago(x.t)}</span></span><span class="n ${x.ret>0?"pos":x.ret<0?"neg":""}">${x.ret==null?"ממתין":(x.ret>0?"+":"")+(x.ret*100).toFixed(1)+"%"}</span></div>`).join(""):'<div class="empty" style="padding:8px 0">אין התראות ב-7 הימים האחרונים.</div>';
@@ -171,11 +171,14 @@ const PB=((D.book||{}).phone||{}).summary||{},usd0=v=>v==null?"—":(v<0?"−":v
 $("midcost").textContent=D.mid_cost;
 (function(){const T=D.test;if(!T){$("test").hidden=true;return}
  const dd=new Date(T.decision+"T00:00:00Z").toLocaleDateString("he-IL",{day:"numeric",month:"numeric",year:"numeric"});
- $("testIntro").textContent=`כל יום מסחר נרשמות ${T.per_day} מניות קטנות אקראיות, בלי שום סיגנל, ונבדקות באותם כללים בדיוק. אם ההתראות לא טובות מהן בבירור, הסורק לא מוצא משהו אמיתי. נקודת ההחלטה: ${dd}.`;
- const rows=[["📲 התראות לטלפון",T.phone,(D.book.phone||{}).summary],["📋 כל האותות",T.all,(D.book.all||{}).summary],["🎲 קבוצת ביקורת",T.control,(D.book.control||{}).summary]];
+ $("testIntro").textContent=`כל יום מסחר נרשמות ${T.per_day} מניות קטנות אקראיות, בלי שום סיגנל, ונבדקות באותם כללים בדיוק. אם ההתראות לא טובות מהן בבירור, הסורק לא מוצא משהו אמיתי. בשורות השורט: אותן מניות בכיוון ההפוך (מרוויחים כשהן יורדות), אחרי עלות השאלה של 1% לעסקה. נקודת ההחלטה: ${dd}.`;
+ const B0=D.book||{},sb=k=>(B0[k]||{}).summary,none={evaluated:null,hit20:null,dd15:null,sim_mean:null};
+ const avg=S=>S&&S.closed?{evaluated:S.closed,hit20:null,dd15:null,sim_mean:Math.round(S.realized/S.closed)/10}:none;
+ const rows=[["📲 התראות לטלפון",T.phone,sb("phone")],["📋 כל האותות",T.all,sb("all")],["🎲 קבוצת ביקורת",T.control,sb("control")],
+  ["📉 שורט על כל האותות",avg(sb("short_all")),sb("short_all")],["📉 שורט על קבוצת הביקורת",avg(sb("short_control")),sb("short_control")]];
  const per=S=>S&&S.n?Math.round(S.total/S.n):null;const r=v=>v==null?"—":v+"%";
  $("testTable").innerHTML="<tr><th>קבוצה</th><th>נבדקו</th><th>הגיעו ל-+20% תוך 3 ימים</th><th>ירדו 15% תוך 3 ימים</th><th>עסקה ממוצעת</th><th>תיק: $ לכל $1,000</th></tr>"+
-  rows.map(([l,s,b])=>`<tr><td>${l}</td><td class="n">${s.evaluated}</td><td class="n">${r(s.hit20)}</td><td class="n">${r(s.dd15)}</td><td class="n ${s.sim_mean>0?"pos":s.sim_mean<0?"neg":""}">${s.sim_mean==null?"—":(s.sim_mean>0?"+":"")+s.sim_mean+"%"}</td><td class="n ${per(b)>0?"pos":per(b)<0?"neg":""}">${per(b)==null?"—":money(per(b))}</td></tr>`).join("");
+  rows.map(([l,s,b])=>`<tr><td>${l}</td><td class="n">${s.evaluated??"—"}</td><td class="n">${r(s.hit20)}</td><td class="n">${r(s.dd15)}</td><td class="n ${s.sim_mean>0?"pos":s.sim_mean<0?"neg":""}">${s.sim_mean==null?"—":(s.sim_mean>0?"+":"")+s.sim_mean+"%"}</td><td class="n ${per(b)>0?"pos":per(b)<0?"neg":""}">${per(b)==null?"—":money(per(b))}</td></tr>`).join("");
  $("testNote").textContent=T.control.evaluated<30?`קבוצת הביקורת רק התחילה (${T.control.evaluated} עם תוצאה). צריך לפחות 30 כדי להשוות.`:"השוואה הוגנת: אותה תקופה, אותם כללי כניסה ויציאה.";
 })();
 (function(){const host=$("mid"),M=D.mid||{},ks=Object.keys(M);
