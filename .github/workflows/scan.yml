@@ -2,7 +2,8 @@ name: MemeRadar scan
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # every 10 min, 24/7 (GitHub may delay runs by a few minutes)
+    - cron: "*/10 * * * *"   # wakes the scanner; each run then scans every 10 min for ~5.5 hours by itself
+                             # (Oct 2026: GitHub fired the schedule only every 2-5 hours, so we no longer rely on it)
   workflow_dispatch:
     inputs:
       test_telegram:
@@ -20,7 +21,7 @@ permissions:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -47,9 +48,19 @@ jobs:
         run: |
           if [ "${{ inputs.test_telegram }}" = "true" ]; then
             python -m scanner.main --test-telegram
-          else
-            python -m scanner.main -v
+            exit 0
           fi
+          git config user.name "memeradar-bot"
+          git config user.email "memeradar-bot@users.noreply.github.com"
+          end=$((SECONDS + 330 * 60))
+          while true; do
+            python -m scanner.main -v || echo "scan failed, continuing"
+            git add state/ docs/ || true
+            git diff --cached --quiet || git commit -q -m "state update [skip ci]"
+            for i in 1 2 3; do git pull -q --rebase -X ours && git push -q && break; sleep 5; done
+            [ $SECONDS -ge $end ] && break
+            sleep 600
+          done
       - name: Save state
         if: always()
         run: |
