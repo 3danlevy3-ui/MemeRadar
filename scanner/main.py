@@ -155,8 +155,9 @@ def run(dry=False, verbose=False):
     # that while it is not running, so the first scan afterwards says how long the gap was.
     try:
         last = state.get("last_run") or 0
-        if last and now - last > C.GAP_ALERT_MIN * 60:
-            send(notify.fmt_gap(last, now), urgent=True)
+        if last and now - last > C.GAP_ALERT_MIN * 60 and now - state.get("gap_sent", 0) > 12 * 3600:
+            send(notify.fmt_gap(last, now))          # at most twice a day, and without the urgent sound
+            state["gap_sent"] = now
     except Exception as ex:  # keep scanning even if this part breaks
         print("gap notice error", repr(ex))
 
