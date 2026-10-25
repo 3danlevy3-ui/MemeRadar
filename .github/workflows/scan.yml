@@ -54,6 +54,9 @@ jobs:
           git config user.email "memeradar-bot@users.noreply.github.com"
           end=$((SECONDS + 330 * 60))
           while true; do
+            # A run that waited in the queue was checked out at the commit from when it was queued, with
+            # old state (25 Oct: a false "did not run for 1.9 hours" message). Always start from the latest.
+            git fetch -q origin main && git reset -q --hard origin/main || echo "could not refresh, using local copy"
             python -m scanner.main -v || echo "scan failed, continuing"
             git add state/ docs/ || true
             git diff --cached --quiet || git commit -q -m "state update [skip ci]"
