@@ -190,8 +190,13 @@ $("midcost").textContent=D.mid_cost;
  ks.forEach(k=>{const v=M[k];h+=`<tr><td>${k}</td><td class="n">${v.n}</td><td class="n">${v.evaluated}</td><td class="n">${rate(v.hit10)}</td><td class="n">${rate(v.hit20)}</td><td class="n">${rate(v.dd10)}</td>`+
   rk.map(r=>`<td>${cell(v.rules[r])}</td>`).join("")+"</tr>"});
  host.innerHTML=h+"</table>"})();
-(function(){const h=D.health||{};const k=Object.keys(h);$("health").innerHTML=k.length?k.sort().map(n=>{const [ok,bad]=h[n];
- return `<div>${bad===0?"✅":ok?"⚠️":"❌"} ${n}: ${ok}/${ok+bad} הצליחו</div>`}).join(""):'<div class="muted">אין עדיין נתונים להיום</div>'})();
+(function(){const h=D.health||{};
+ const SRC=[["reddit","Reddit","כל סריקה"],["stocktwits","Stocktwits","כל סריקה"],["yahoo","מחירים (Yahoo)","רק כשמניה מתחממת"],["finra","שורטים (FINRA)","רק כשמניה מתחממת"],
+  ["nasdaq","אופציות (Nasdaq)","רק כשמניה מתחממת"],["google_trends","Google Trends","רק כשמניה מתחממת"],["earnings","לוח דוחות כספיים","פעם ביום, בימי מסחר"],["x","X (טוויטר)","דורש מפתח בתשלום"]];
+ const rows=SRC.map(([k,name,when])=>{const v=h[k];if(!v)return `<div class="muted">⚪ ${name}: לא נדרש היום (${when})</div>`;const [ok,bad]=v;
+  return `<div>${bad===0?"✅":ok?"⚠️":"❌"} ${name}: ${ok}/${ok+bad} הצליחו</div>`});
+ if(h.errors)rows.push(`<div>⚠️ שגיאות פנימיות בסורק היום: ${h.errors[1]}</div>`);
+ $("health").innerHTML=rows.join("")})();
 </script></body></html>
 """
 
