@@ -17,6 +17,7 @@ concurrency:
 
 permissions:
   contents: write
+  actions: write      # lets each run start the next one (Nov 2026: scheduled starts came hours late)
 
 jobs:
   scan:
@@ -44,6 +45,7 @@ jobs:
           BURST_MULT: ${{ vars.BURST_MULT }}
           EARLY_MAX_MOVE: ${{ vars.EARLY_MAX_MOVE }}
           SUBREDDITS: ${{ vars.SUBREDDITS }}
+          GH_TOKEN: ${{ github.token }}
           PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
         run: |
           if [ "${{ inputs.test_telegram }}" = "true" ]; then
@@ -61,7 +63,12 @@ jobs:
             git add state/ docs/ || true
             git diff --cached --quiet || git commit -q -m "state update [skip ci]"
             for i in 1 2 3; do git pull -q --rebase -X ours && git push -q && break; sleep 5; done
-            [ $SECONDS -ge $end ] && break
+            if [ $SECONDS -ge $end ]; then
+              # hand over to a fresh run right away instead of waiting hours for GitHub's schedule;
+              # it waits in the queue and starts the moment this one finishes
+              gh workflow run scan.yml --ref main || echo "could not start the next run"
+              break
+            fi
             sleep 600
           done
       - name: Save state
